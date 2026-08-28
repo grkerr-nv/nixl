@@ -226,6 +226,31 @@ mock_error_agent = executable('mock_error_agent',
     install : false
 )
 
+# Test-only Python extension backing test/python/mock_error_agent.py, which walks
+# the same scenario table as the C++ driver above through the Python API instead.
+# MOCK_BACKEND forwards into an in-process GMock object, so Python cannot inject
+# southbound errors without this shim. Optional: skipped when pybind11 is absent,
+# since the C++ driver and the gtest suite do not need it.
+pybind_gmock_dep = dependency('pybind11', required : false)
+py_gmock = import('python').find_installation('python3', required : false)
+
+if pybind_gmock_dep.found() and py_gmock.found()
+    py_gmock.extension_module('nixl_gmock',
+        sources : [
+            'gmock_engine_py.cpp',
+            'mocks/error_injection/mock_error_engine.cpp',
+            'mocks/error_injection/error_scenarios.cpp',
+            'mocks/gmock_engine.cpp',
+            ],
+        include_directories: [nixl_inc_dirs, utils_inc_dirs, gtest_inc_dirs],
+        dependencies : [nixl_dep, nixl_common_dep, gtest_dep, gmock_dep, pybind_gmock_dep],
+        link_with: [nixl_build_lib],
+        install : false
+    )
+else
+    message('pybind11 or python3 not found, skipping nixl_gmock (test/python/mock_error_agent.py)')
+endif
+
 if get_option('b_sanitize').split(',').contains('thread')
     test_env = environment()
     test_env.set('TSAN_OPTIONS', 'halt_on_error=1')

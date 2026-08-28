@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <stdexcept>
+
 #include "mocks/error_injection/error_injection.h"
 
 namespace mocks::error_injection {
@@ -110,6 +112,91 @@ siteName(injection_site_t site) {
         return "estimateXferCost";
     }
     return "(unknown)";
+}
+
+const char *
+actionName(action_t action) {
+    switch (action) {
+    case action_t::COMPLETE:
+        return "COMPLETE";
+    case action_t::CREATE_BACKEND:
+        return "CREATE_BACKEND";
+    case action_t::REGISTER_MEM:
+        return "REGISTER_MEM";
+    case action_t::DEREGISTER_MEM:
+        return "DEREGISTER_MEM";
+    case action_t::LOAD_REMOTE_MD:
+        return "LOAD_REMOTE_MD";
+    case action_t::MAKE_CONNECTION:
+        return "MAKE_CONNECTION";
+    case action_t::INVALIDATE_REMOTE_MD:
+        return "INVALIDATE_REMOTE_MD";
+    case action_t::CREATE_XFER:
+        return "CREATE_XFER";
+    case action_t::POST_XFER:
+        return "POST_XFER";
+    case action_t::CHECK_XFER:
+        return "CHECK_XFER";
+    case action_t::RELEASE_XFER:
+        return "RELEASE_XFER";
+    case action_t::PREP_REMOTE_MEM_VIEW:
+        return "PREP_REMOTE_MEM_VIEW";
+    case action_t::PREP_LOCAL_MEM_VIEW:
+        return "PREP_LOCAL_MEM_VIEW";
+    case action_t::GET_NOTIFS:
+        return "GET_NOTIFS";
+    case action_t::GEN_NOTIF:
+        return "GEN_NOTIF";
+    case action_t::QUERY_MEM:
+        return "QUERY_MEM";
+    case action_t::ESTIMATE_XFER_COST:
+        return "ESTIMATE_XFER_COST";
+    case action_t::POLL_TO_COMPLETION:
+        return "POLL_TO_COMPLETION";
+    case action_t::REPOST_ACTIVE:
+        return "REPOST_ACTIVE";
+    case action_t::STATUS_BEFORE_POST:
+        return "STATUS_BEFORE_POST";
+    case action_t::TELEMETRY_DISABLED:
+        return "TELEMETRY_DISABLED";
+    }
+    return "(unknown)";
+}
+
+const char *
+behaviorName(behavior_t behavior) {
+    switch (behavior) {
+    case behavior_t::COMPLETED:
+        return "COMPLETED";
+    case behavior_t::PASS_THROUGH:
+        return "PASS_THROUGH";
+    case behavior_t::PASS_THROUGH_RECOVERABLE:
+        return "PASS_THROUGH_RECOVERABLE";
+    case behavior_t::COLLAPSED:
+        return "COLLAPSED";
+    case behavior_t::TRANSFORMED:
+        return "TRANSFORMED";
+    case behavior_t::IGNORED:
+        return "IGNORED";
+    case behavior_t::PROGRESSED:
+        return "PROGRESSED";
+    case behavior_t::AGENT_GENERATED:
+        return "AGENT_GENERATED";
+    }
+    return "(unknown)";
+}
+
+injection_site_t
+siteFromName(const std::string &name) {
+    for (int i = static_cast<int>(injection_site_t::NONE);
+         i <= static_cast<int>(injection_site_t::ESTIMATE_XFER_COST);
+         ++i) {
+        const auto site = static_cast<injection_site_t>(i);
+        if (name == siteName(site)) {
+            return site;
+        }
+    }
+    throw std::invalid_argument("unknown injection site: " + name);
 }
 
 void
