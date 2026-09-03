@@ -189,6 +189,17 @@ struct scenario {
 const char *
 siteName(injection_site_t site);
 
+const char *
+actionName(action_t action);
+
+const char *
+behaviorName(behavior_t behavior);
+
+/* Returns injection_site_t::NONE for "(none)" and throws for anything that is
+ * not a name siteName() would produce. */
+injection_site_t
+siteFromName(const std::string &name);
+
 /*
  * A later ON_CALL wins over the defaults set in the GMockBackendEngine c'tor.
  * The installed action bumps `calls`, separating an error the agent swallowed
