@@ -33,11 +33,6 @@
  *
  * For the same reason the inner engine's telemetry events stay in the inner
  * engine: getTelemetryEvents() is not virtual either.
- *
- * Every virtual in nixlBackendEngine is overridden below. Most of them have a
- * non-pure default that reports an unsupported operation, so a virtual added
- * upstream but not added here keeps compiling and silently stops being
- * forwarded. backend_engine.h is the checklist.
  */
 class nixlBackendEngineForwarder : public nixlBackendEngine {
 public:
