@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "backend_engine_forwarder.h"
+#include "common.h"
 #include "mocks/gmock_engine.h"
 
 namespace {
@@ -45,6 +46,7 @@ class backendEngineForwarderTest : public testing::Test {
 protected:
     backendEngineForwarderTest()
         : init_params_{.localAgent = "local", .type = "FORWARDER", .customParams = &custom_params_},
+          inner_(&init_params_),
           forwarder_(&init_params_, inner_) {}
 
     nixl_b_params_t custom_params_;
@@ -54,6 +56,27 @@ protected:
 };
 
 static_assert(!std::is_abstract_v<nixlBackendEngineForwarder>);
+
+TEST_F(backendEngineForwarderTest, PresentsTheInnerEngineIdentity) {
+    EXPECT_EQ(forwarder_.getType(), inner_.getType());
+    EXPECT_EQ(forwarder_.getCustomParams(), inner_.getCustomParams());
+    EXPECT_FALSE(forwarder_.getInitErr());
+}
+
+TEST(backendEngineForwarderInitTest, ReportsInitParamsThatDisagreeWithTheInnerEngine) {
+    const gtest::LogIgnoreGuard ignore("do not match the inner engine");
+    nixl_b_params_t custom_params;
+    nixlBackendInitParams inner_params{
+        .localAgent = "local", .type = "INNER", .customParams = &custom_params};
+    nixlBackendInitParams forwarder_params{
+        .localAgent = "local", .type = "FORWARDER", .customParams = &custom_params};
+    StrictMock<mocks::GMockBackendEngine> inner(&inner_params);
+
+    const nixlBackendEngineForwarder forwarder(&forwarder_params, inner);
+
+    EXPECT_TRUE(forwarder.getInitErr());
+    EXPECT_EQ(ignore.getIgnoredCount(), 1);
+}
 
 TEST_F(backendEngineForwarderTest, ForwardsCapabilitiesAndMemoryRegistration) {
     nixlBlobDesc blob(0, 1, 0);
@@ -128,9 +151,11 @@ TEST_F(backendEngineForwarderTest, ForwardsTransfersAndOpaqueHandles) {
     EXPECT_CALL(inner_, checkXfer(&request)).WillOnce(Return(NIXL_SUCCESS));
     EXPECT_CALL(inner_, releaseReqH(&request)).WillOnce(Return(NIXL_ERR_BACKEND));
 
-    EXPECT_EQ(forwarder_.prepXfer(NIXL_WRITE, local, remote, remote_agent, handle), NIXL_SUCCESS);
+    EXPECT_EQ(forwarder_.prepXfer(NIXL_WRITE, local, remote, remote_agent, handle, nullptr),
+              NIXL_SUCCESS);
     EXPECT_EQ(handle, &request);
-    EXPECT_EQ(forwarder_.postXfer(NIXL_WRITE, local, remote, remote_agent, handle), NIXL_IN_PROG);
+    EXPECT_EQ(forwarder_.postXfer(NIXL_WRITE, local, remote, remote_agent, handle, nullptr),
+              NIXL_IN_PROG);
     EXPECT_EQ(forwarder_.checkXfer(handle), NIXL_SUCCESS);
     EXPECT_EQ(forwarder_.releaseReqH(handle), NIXL_ERR_BACKEND);
 }
@@ -175,9 +200,9 @@ TEST_F(backendEngineForwarderTest, ForwardsOptionalOperations) {
                                  nullptr))
         .WillOnce(Return(NIXL_SUCCESS));
 
-    EXPECT_EQ(forwarder_.prepMemView(remote_descs, remote_view), NIXL_SUCCESS);
+    EXPECT_EQ(forwarder_.prepMemView(remote_descs, remote_view, nullptr), NIXL_SUCCESS);
     EXPECT_EQ(remote_view, &remote_view_token);
-    EXPECT_EQ(forwarder_.prepMemView(local_descs, local_view), NIXL_ERR_BACKEND);
+    EXPECT_EQ(forwarder_.prepMemView(local_descs, local_view, nullptr), NIXL_ERR_BACKEND);
     EXPECT_EQ(local_view, &local_view_token);
     forwarder_.releaseMemView(remote_view);
     EXPECT_EQ(forwarder_.getNotifs(notifications), NIXL_SUCCESS);
@@ -190,7 +215,8 @@ TEST_F(backendEngineForwarderTest, ForwardsOptionalOperations) {
                                           handle,
                                           duration,
                                           error_margin,
-                                          method),
+                                          method,
+                                          nullptr),
               NIXL_SUCCESS);
 }
 

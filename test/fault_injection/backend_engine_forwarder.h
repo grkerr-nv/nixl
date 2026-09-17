@@ -24,6 +24,20 @@
  *
  * The forwarder does not own the inner engine. The inner engine must outlive
  * the forwarder.
+ *
+ * The forwarder must be constructed with the init params the inner engine was
+ * constructed with. nixlBackendEngine keeps type, custom params and the local
+ * agent name in non-virtual accessors, so callers see the forwarder's own copy
+ * rather than the inner engine's, and the agent keys its backend bookkeeping
+ * off getType(). Mismatched params are reported through getInitErr().
+ *
+ * For the same reason the inner engine's telemetry events stay in the inner
+ * engine: getTelemetryEvents() is not virtual either.
+ *
+ * Every virtual in nixlBackendEngine is overridden below. Most of them have a
+ * non-pure default that reports an unsupported operation, so a virtual added
+ * upstream but not added here keeps compiling and silently stops being
+ * forwarded. backend_engine.h is the checklist.
  */
 class nixlBackendEngineForwarder : public nixlBackendEngine {
 public:
@@ -49,20 +63,23 @@ public:
     nixl_status_t
     unloadMD(nixlBackendMD *input) override;
 
+    // Defaults are deliberately not repeated on the overrides below: they are not
+    // inherited and not virtual, so a base default that changes upstream would
+    // apply to calls through nixlBackendEngine but not to calls through this class.
     nixl_status_t
     prepXfer(const nixl_xfer_op_t &operation,
              const nixl_meta_dlist_t &local,
              const nixl_meta_dlist_t &remote,
              const std::string &remote_agent,
              nixlBackendReqH *&handle,
-             const nixl_opt_b_args_t *opt_args = nullptr) const override;
+             const nixl_opt_b_args_t *opt_args) const override;
     nixl_status_t
     postXfer(const nixl_xfer_op_t &operation,
              const nixl_meta_dlist_t &local,
              const nixl_meta_dlist_t &remote,
              const std::string &remote_agent,
              nixlBackendReqH *&handle,
-             const nixl_opt_b_args_t *opt_args = nullptr) const override;
+             const nixl_opt_b_args_t *opt_args) const override;
     nixl_status_t
     checkXfer(nixlBackendReqH *handle) const override;
     nixl_status_t
@@ -71,11 +88,11 @@ public:
     nixl_status_t
     prepMemView(const nixl_remote_meta_dlist_t &dlist,
                 nixlMemViewH &mvh,
-                const nixl_opt_b_args_t *opt_args = nullptr) const override;
+                const nixl_opt_b_args_t *opt_args) const override;
     nixl_status_t
     prepMemView(const nixl_meta_dlist_t &dlist,
                 nixlMemViewH &mvh,
-                const nixl_opt_b_args_t *opt_args = nullptr) const override;
+                const nixl_opt_b_args_t *opt_args) const override;
     void
     releaseMemView(nixlMemViewH mvh) const override;
 
@@ -110,7 +127,7 @@ public:
                      std::chrono::microseconds &duration,
                      std::chrono::microseconds &err_margin,
                      nixl_cost_t &method,
-                     const nixl_opt_args_t *extra_params = nullptr) const override;
+                     const nixl_opt_args_t *extra_params) const override;
 
 private:
     nixlBackendEngine &inner_;

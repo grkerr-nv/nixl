@@ -17,11 +17,21 @@
 
 #include "backend_engine_forwarder.h"
 
+#include "common/nixl_log.h"
+
 nixlBackendEngineForwarder::nixlBackendEngineForwarder(const nixlBackendInitParams *init_params,
                                                        nixlBackendEngine &inner)
     : nixlBackendEngine(init_params),
       inner_(inner) {
+    // An engine settles initErr in its own constructor, so the inner engine is
+    // done reporting by now and a snapshot is enough.
     initErr = inner_.getInitErr();
+
+    if (getType() != inner_.getType() || getCustomParams() != inner_.getCustomParams()) {
+        NIXL_ERROR << "Forwarder init params do not match the inner engine: inner type '"
+                   << inner_.getType() << "', forwarder type '" << getType() << "'";
+        initErr = true;
+    }
 }
 
 bool
