@@ -45,12 +45,18 @@ namespace backend_plugin {
         return nixl_b_params_t();
     }
 
+    static nixl_mem_list_t
+    get_backend_mems() {
+        return {DRAM_SEG};
+    }
+
     static nixlBackendPlugin plugin = {NIXL_PLUGIN_API_VERSION,
                                        create_engine,
                                        destroy_engine,
                                        get_plugin_name,
                                        get_plugin_version,
-                                       get_backend_options};
+                                       get_backend_options,
+                                       get_backend_mems};
 } // namespace backend_plugin
 
 } // namespace mocks

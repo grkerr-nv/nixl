@@ -13,9 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+bad_api_plugin_fixture = shared_library(
+    'backend_plugin_bad_api_fixture',
+    'backend_plugin_fixture.cpp',
+    cpp_args: ['-DNIXL_TEST_PLUGIN_BAD_API'],
+    dependencies: [nixl_common_dep],
+    include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    install: false,
+)
+
+missing_callback_plugin_fixture = shared_library(
+    'backend_plugin_missing_callback_fixture',
+    'backend_plugin_fixture.cpp',
+    cpp_args: ['-DNIXL_TEST_PLUGIN_MISSING_CALLBACK'],
+    dependencies: [nixl_common_dep],
+    include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    install: false,
+)
+
 fault_injection_test_sources = files(
     '../../fault_injection/backend_engine_forwarder.cpp',
+    '../../fault_injection/backend_plugin_loader.cpp',
     'backend_engine_forwarder_test.cpp',
+    'backend_plugin_loader_test.cpp',
 )
 
 fault_injection_test_inc = include_directories('../../fault_injection')
+fault_injection_test_deps = [dl_dep]
