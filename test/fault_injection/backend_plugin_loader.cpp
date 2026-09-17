@@ -20,6 +20,7 @@
 #include <dlfcn.h>
 
 #include <exception>
+#include <type_traits>
 #include <utility>
 
 #include "backend/backend_plugin.h"
@@ -32,9 +33,44 @@ using plugin_fini_fn_t = void (*)();
 
 bool
 hasRequiredCallbacks(const nixlBackendPlugin &plugin) {
+    // get_backend_options and get_backend_mems are left out on purpose:
+    // nixlBackendPluginHandle null-checks them at the call sites rather than
+    // demanding them, and rejecting here would turn away plugins NIXL accepts.
     return plugin.create_engine != nullptr && plugin.destroy_engine != nullptr &&
-        plugin.get_plugin_name != nullptr && plugin.get_plugin_version != nullptr &&
-        plugin.get_backend_options != nullptr && plugin.get_backend_mems != nullptr;
+        plugin.get_plugin_name != nullptr && plugin.get_plugin_version != nullptr;
+}
+
+// Plugin code is foreign to the harness, so every call into it reports rather
+// than propagates, and yields an empty result.
+template<typename Function>
+std::invoke_result_t<Function>
+guarded(const char *operation, Function function) {
+    try {
+        return function();
+    }
+    catch (const std::exception &error) {
+        NIXL_ERROR << "Backend plugin " << operation << " threw: " << error.what();
+    }
+    catch (...) {
+        NIXL_ERROR << "Backend plugin " << operation << " threw an unknown exception";
+    }
+    return {};
+}
+
+int
+dlopenFlags(nixlBackendPluginLoader::symbolBinding binding) {
+    // RTLD_NODELETE matches nixlPluginManager::loadPluginFromPath: plugins link
+    // Abseil, whose thread_local and static initialization are unsafe to unload,
+    // so the mapping has to survive dlclose.
+    int flags = RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE;
+    if (binding == nixlBackendPluginLoader::symbolBinding::deepBind) {
+#ifdef RTLD_DEEPBIND
+        flags |= RTLD_DEEPBIND;
+#else
+        NIXL_WARN << "RTLD_DEEPBIND requested but is not supported on this platform";
+#endif
+    }
+    return flags;
 }
 
 template<typename Function>
@@ -106,13 +142,13 @@ nixlBackendPluginLoader::engineDeleter::operator()(nixlBackendEngine *engine) co
 }
 
 std::unique_ptr<nixlBackendPluginLoader>
-nixlBackendPluginLoader::load(const std::filesystem::path &path) {
+nixlBackendPluginLoader::load(const std::filesystem::path &path, symbolBinding binding) {
     if (!path.is_absolute()) {
         NIXL_ERROR << "Backend plugin path must be absolute: '" << path.string() << "'";
         return nullptr;
     }
 
-    void *handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    void *handle = dlopen(path.c_str(), dlopenFlags(binding));
     if (handle == nullptr) {
         NIXL_ERROR << "Failed to load backend plugin '" << path.string() << "': " << dlerror();
         return nullptr;
@@ -125,16 +161,7 @@ nixlBackendPluginLoader::load(const std::filesystem::path &path) {
         return nullptr;
     }
 
-    nixlBackendPlugin *plugin = nullptr;
-    try {
-        plugin = init();
-    }
-    catch (const std::exception &error) {
-        NIXL_ERROR << "Backend plugin initialization threw: " << error.what();
-    }
-    catch (...) {
-        NIXL_ERROR << "Backend plugin initialization threw an unknown exception";
-    }
+    nixlBackendPlugin *plugin = guarded("initialization", [init] { return init(); });
 
     if (plugin == nullptr) {
         NIXL_ERROR << "Backend plugin initialization failed for '" << path.string() << "'";
@@ -144,7 +171,8 @@ nixlBackendPluginLoader::load(const std::filesystem::path &path) {
     if (plugin->api_version != NIXL_PLUGIN_API_VERSION) {
         NIXL_ERROR << "Backend plugin API version mismatch for '" << path.string() << "': expected "
                    << NIXL_PLUGIN_API_VERSION << ", got " << plugin->api_version;
-        closePlugin(handle, fini, true);
+        // Skip nixl_plugin_fini: its ABI belongs to a version we just rejected.
+        closePlugin(handle, fini, false);
         return nullptr;
     }
     if (!hasRequiredCallbacks(*plugin)) {
@@ -162,37 +190,40 @@ nixlBackendPluginLoader::nixlBackendPluginLoader(std::shared_ptr<state> state)
 
 nixlBackendPluginLoader::engine_ptr_t
 nixlBackendPluginLoader::createEngine(const nixlBackendInitParams *init_params) const {
-    nixlBackendEngine *engine = nullptr;
-    try {
-        engine = state_->plugin_->create_engine(init_params);
-    }
-    catch (const std::exception &error) {
-        NIXL_ERROR << "Backend engine creation threw: " << error.what();
-    }
-    catch (...) {
-        NIXL_ERROR << "Backend engine creation threw an unknown exception";
-    }
+    nixlBackendEngine *engine = guarded("engine creation", [this, init_params] {
+        return state_->plugin_->create_engine(init_params);
+    });
     return engine_ptr_t(engine, engineDeleter(state_));
 }
 
 std::string
 nixlBackendPluginLoader::getName() const {
-    const char *name = state_->plugin_->get_plugin_name();
-    return name == nullptr ? std::string() : name;
+    return guarded("name query", [this] {
+        const char *name = state_->plugin_->get_plugin_name();
+        return name == nullptr ? std::string() : std::string(name);
+    });
 }
 
 std::string
 nixlBackendPluginLoader::getVersion() const {
-    const char *version = state_->plugin_->get_plugin_version();
-    return version == nullptr ? std::string() : version;
+    return guarded("version query", [this] {
+        const char *version = state_->plugin_->get_plugin_version();
+        return version == nullptr ? std::string() : std::string(version);
+    });
 }
 
 nixl_b_params_t
 nixlBackendPluginLoader::getBackendOptions() const {
-    return state_->plugin_->get_backend_options();
+    if (state_->plugin_->get_backend_options == nullptr) {
+        return {};
+    }
+    return guarded("options query", [this] { return state_->plugin_->get_backend_options(); });
 }
 
 nixl_mem_list_t
 nixlBackendPluginLoader::getBackendMems() const {
-    return state_->plugin_->get_backend_mems();
+    if (state_->plugin_->get_backend_mems == nullptr) {
+        return {};
+    }
+    return guarded("memory list query", [this] { return state_->plugin_->get_backend_mems(); });
 }

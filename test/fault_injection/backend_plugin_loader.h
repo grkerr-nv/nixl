@@ -26,13 +26,24 @@
 /**
  * Loads a genuine backend plugin by absolute path.
  *
- * Engines created by the loader retain the plugin library until they are
- * destroyed, even if the loader itself is destroyed first.
+ * Engines created by the loader retain the plugin library even if the loader
+ * itself is destroyed first. The hold belongs to the returned pointer rather
+ * than to the engine, so it lasts until that pointer is destroyed, which
+ * resetting it does not do.
+ *
+ * get_backend_options and get_backend_mems are optional, as they are for
+ * nixlPluginManager, and report empty when the plugin omits them.
  */
 class nixlBackendPluginLoader {
     struct state;
 
 public:
+    /**
+     * Whether to add RTLD_DEEPBIND, which nixlPluginManager does for UCX when
+     * NIXL_UCX_DEEPBIND asks for it.
+     */
+    enum class symbolBinding { normal, deepBind };
+
     class engineDeleter {
     public:
         void
@@ -49,7 +60,7 @@ public:
     using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
 
     static std::unique_ptr<nixlBackendPluginLoader>
-    load(const std::filesystem::path &path);
+    load(const std::filesystem::path &path, symbolBinding binding = symbolBinding::normal);
 
     engine_ptr_t
     createEngine(const nixlBackendInitParams *init_params) const;

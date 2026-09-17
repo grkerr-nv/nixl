@@ -158,7 +158,7 @@ endif
 
 test_exe = executable('gtest',
     sources : gtest_sources,
-    include_directories: [nixl_inc_dirs, utils_inc_dirs, device_api_inc, fault_injection_test_inc, include_directories('../metrics'), include_directories('../../src/plugins/telemetry/common')],
+    include_directories: [nixl_inc_dirs, utils_inc_dirs, device_api_inc, fault_injection_test_inc, fault_injection_generated_inc, include_directories('../metrics'), include_directories('../../src/plugins/telemetry/common')],
     cpp_args : cpp_flags,
     dependencies : [nixl_dep, nixl_common_dep, gpu_dependencies, device_api_dep, fault_injection_test_deps, gtest_dep, gmock_dep, absl_strings_dep, absl_time_dep, ucx_hw_warning_dep, file_utils_interface, nixl_telemetry_mp_store_dep, telemetry_mp_collector_dep, telemetry_mp_exporter_dep],
     link_with: [nixl_build_lib],
@@ -174,7 +174,12 @@ gtest_args = [plugin_dirs_arg]
 if get_option('sanitizer') != 'none'
     gtest_args += '--gtest_filter=-MetadataExchangeTestFixture.*'
 endif
-test('gtest', test_exe, args: gtest_args, env: sanitizer_env, suite: 'sanitizer')
+test('gtest',
+     test_exe,
+     args: gtest_args,
+     env: sanitizer_env,
+     suite: 'sanitizer',
+     depends: backend_plugin_fixtures)
 
 # Telemetry hot-path microbenchmark (NVBug 5876558). The cases are DISABLED_ so
 # they never run in the normal 'gtest' suite; this dedicated entry opts them in.
