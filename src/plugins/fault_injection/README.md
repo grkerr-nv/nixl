@@ -56,11 +56,13 @@ parameter map, including parameters discovered during engine initialization.
 These are snapshots at construction, not live views of later backend changes.
 Use the same initialization parameters for both engines.
 
-Backend telemetry must be disabled. Its getter is nonvirtual and drains a private
-queue belonging to the object on which it is called. A forwarding wrapper cannot
-transparently expose the genuine engine's queue through the existing interface.
-Telemetry-enabled initialization is rejected rather than silently losing events.
-Supporting it requires a separate interface or telemetry design decision.
+Telemetry-enabled initialization is accepted, so `NIXL_TELEMETRY_ENABLE` and
+`captureTelemetry` deployments behave as they do without the wrapper. The
+backend telemetry getter is nonvirtual and returns the wrapper's own queue, which
+stays empty. No backend currently calls `addTelemetryEvent` and core does not
+call `getTelemetryEvents`, so nothing is lost today. If backend telemetry comes
+into use, forward it by draining the genuine engine's public
+`getTelemetryEvents()` into the wrapper's queue.
 
 This helper does not load shared libraries, preserve plugin-level identity by
 itself, parse fault configuration, inject errors, or measure forwarding overhead.
