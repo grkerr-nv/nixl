@@ -180,6 +180,8 @@ TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParametersAndCleansUp) {
     EXPECT_EQ(destructions, 1);
 }
 
+// Run each forwarding test with success, in-progress, and all twelve error statuses.
+// Verify each status passes through unchanged, along with arguments, outputs, and handles.
 class ForwardingStatusTest : public ForwardingEngineTest,
                              public testing::WithParamInterface<nixl_status_t> {};
 
