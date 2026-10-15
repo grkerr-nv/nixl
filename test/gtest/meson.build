@@ -59,7 +59,6 @@ test('forwarding_engine', forwarding_test,
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
 
 subdir('mocks')
-subdir('unit')
 subdir('plugins')
 
 if ucx_gpu_device_api_available
@@ -95,6 +94,8 @@ elif cuda_dep.found()
     cpp_flags += ['-DHAVE_GPU', '-DHAVE_CUDA']
 endif
 
+subdir('unit')
+
 if enabled_plugins.get('LIBFABRIC') and libfabric_dep.found()
     cpp_flags += '-DHAVE_LIBFABRIC'
 endif
@@ -125,7 +126,11 @@ gtest_sources = [
     'telemetry_stress_test.cpp',
     'telemetry_benchmark.cpp',
     'nixl_duration_test.cpp',
-    'configuration.cpp'
+    'blocking_queue_test.cpp',
+    'nixl_log_file_test.cpp',
+    'configuration.cpp',
+    # Hidden in libnixl_common, so the oversized-record test links its own copy.
+    '../../src/utils/common/nixl_log_file_sink.cpp',
     ]
 
 if ucx_gpu_device_api_available
@@ -139,6 +144,7 @@ endif
 
 if ucx_dep.found() and is_variable('ucx_backend_interface')
     gtest_sources += 'hw_warning_test.cpp'
+    gtest_sources += 'ucx_trace_context_test.cpp'
     cpp_flags += '-DHAVE_UCX_BACKEND'
     ucx_hw_warning_dep = [ucx_backend_interface, ucx_dep]
 else
@@ -158,6 +164,8 @@ if is_variable('nixl_telemetry_mp_exporter_dep')
     gtest_sources += 'telemetry_mp_exporter_test.cpp'
     gtest_sources += 'telemetry_mp_e2e_test.cpp'
     gtest_sources += 'telemetry_mp_core_test.cpp'
+    gtest_sources += 'telemetry_mp_scrape_test.cpp'
+    gtest_sources += 'telemetry_mp_stress_test.cpp'
     telemetry_mp_exporter_dep = [nixl_telemetry_mp_exporter_dep]
 else
     telemetry_mp_exporter_dep = []
@@ -167,7 +175,7 @@ test_exe = executable('gtest',
     sources : gtest_sources,
     include_directories: [nixl_inc_dirs, utils_inc_dirs, device_api_inc, include_directories('../metrics'), include_directories('../../src/plugins/telemetry/common')],
     cpp_args : cpp_flags,
-    dependencies : [nixl_dep, nixl_common_dep, gpu_dependencies, device_api_dep, gtest_dep, gmock_dep, absl_strings_dep, absl_time_dep, ucx_hw_warning_dep, file_utils_interface, nixl_telemetry_mp_store_dep, telemetry_mp_collector_dep, telemetry_mp_exporter_dep],
+    dependencies : [nixl_dep, nixl_common_dep, serdes_interface, gpu_dependencies, device_api_dep, gtest_dep, gmock_dep, absl_strings_dep, absl_time_dep, ucx_hw_warning_dep, file_utils_interface, nixl_telemetry_mp_store_dep, telemetry_mp_collector_dep, telemetry_mp_exporter_dep],
     link_with: [nixl_build_lib],
     install : true
 )

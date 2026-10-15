@@ -39,6 +39,59 @@ ask for its location rather than guessing the design.
 - Treat eventual integration into upstream NIXL as a separate step from merging
   component features into this working branch.
 
+## Keep the fork current
+
+- `origin` is the personal fork, `git@github.com:grkerr-nv/nixl.git`.
+- `upstream` is `https://github.com/ai-dynamo/nixl.git`. Fetch upstream changes;
+  push working branches only to `origin`. Set `remote.pushDefault` to `origin`.
+- Keep `main` free of feature commits so it can fast-forward to `upstream/main`.
+- Sync regularly and before starting new feature branches. Start with a clean
+  working tree; commit or otherwise preserve local changes first.
+
+Configure the remote once if it is absent:
+
+```bash
+git remote add upstream https://github.com/ai-dynamo/nixl.git
+git config remote.pushDefault origin
+```
+
+Update the fork's main branch:
+
+```bash
+git fetch upstream
+git fetch origin
+git switch main
+git merge --ff-only origin/main
+git merge --ff-only upstream/main
+git push origin main
+```
+
+If a fast-forward fails, inspect the divergence before proceeding. Do not reset
+or force-push shared branches to make the update succeed.
+
+Bring the update into the resiliency integration branch:
+
+```bash
+git switch nixl-resiliency
+git merge --ff-only origin/nixl-resiliency
+git merge --signoff main
+# Resolve conflicts and run relevant checks before pushing.
+git push origin nixl-resiliency
+```
+
+Then update each active feature branch from integration:
+
+```bash
+git switch resiliency/forwarding-engine # Substitute the active feature branch.
+git merge --signoff nixl-resiliency
+# Resolve conflicts, reuse newly available upstream code, and run relevant tests.
+git push origin resiliency/forwarding-engine
+```
+
+Use merges to preserve published feature history. Inspect upstream API and test
+changes during integration, and remove local substitutes when upstream now
+provides the same functionality.
+
 ## Communication style
 
 - Use Caveman for concise progress updates, code and review comments, commit
