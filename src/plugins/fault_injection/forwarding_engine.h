@@ -19,6 +19,7 @@
 
 #include "backend/backend_engine.h"
 
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -93,6 +94,11 @@ public:
     bool
     supportsNotif() const override {
         return engine_->supportsNotif();
+    }
+
+    [[nodiscard]] bool
+    supportsTraceContext() const noexcept override {
+        return engine_->supportsTraceContext();
     }
 
     nixl_mem_list_t
@@ -233,10 +239,10 @@ public:
     }
 
 private:
-    // Validate before the base constructor dereferences params and customParams.
+    // Validate before the base constructor dereferences params; a null parameter map is valid.
     static const nixlBackendInitParams *
     validateParams(const nixlBackendInitParams *params) {
-        if (!params || !params->customParams) {
+        if (!params) {
             throw std::invalid_argument("Backend initialization parameters are required");
         }
         return params;
