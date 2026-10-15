@@ -41,11 +41,13 @@ public:
     }
 
 private:
+    // Default cleanup for directly allocated engines; plugin engines use their callback.
     static void
     deleteEngine(nixlBackendEngine *engine) {
         delete engine;
     }
 
+    // Cleanup callback only; the caller must keep its plugin loaded.
     Destroy destroy_;
 };
 
@@ -236,6 +238,7 @@ public:
     }
 
 private:
+    // Validate before the base constructor dereferences params and customParams.
     static const nixlBackendInitParams *
     validateParams(const nixlBackendInitParams *params) {
         if (!params || !params->customParams) {
@@ -244,6 +247,7 @@ private:
         return params;
     }
 
+    // Own the genuine engine and invoke its deleter on destruction or constructor failure.
     EnginePtr engine_;
 };
 
