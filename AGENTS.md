@@ -1,3 +1,20 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # NIXL resiliency development
 
 This checkout is the working repository for the NIXL resiliency feature.
@@ -21,6 +38,59 @@ ask for its location rather than guessing the design.
   coverage for failure handling and recovery changes.
 - Treat eventual integration into upstream NIXL as a separate step from merging
   component features into this working branch.
+
+## Keep the fork current
+
+- `origin` is the personal fork, `git@github.com:grkerr-nv/nixl.git`.
+- `upstream` is `https://github.com/ai-dynamo/nixl.git`. Fetch upstream changes;
+  push working branches only to `origin`. Set `remote.pushDefault` to `origin`.
+- Keep `main` free of feature commits so it can fast-forward to `upstream/main`.
+- Sync regularly and before starting new feature branches. Start with a clean
+  working tree; commit or otherwise preserve local changes first.
+
+Configure the remote once if it is absent:
+
+```bash
+git remote add upstream https://github.com/ai-dynamo/nixl.git
+git config remote.pushDefault origin
+```
+
+Update the fork's main branch:
+
+```bash
+git fetch upstream
+git fetch origin
+git switch main
+git merge --ff-only origin/main
+git merge --ff-only upstream/main
+git push origin main
+```
+
+If a fast-forward fails, inspect the divergence before proceeding. Do not reset
+or force-push shared branches to make the update succeed.
+
+Bring the update into the resiliency integration branch:
+
+```bash
+git switch nixl-resiliency
+git merge --ff-only origin/nixl-resiliency
+git merge --signoff main
+# Resolve conflicts and run relevant checks before pushing.
+git push origin nixl-resiliency
+```
+
+Then update each active feature branch from integration:
+
+```bash
+git switch resiliency/forwarding-engine # Substitute the active feature branch.
+git merge --signoff nixl-resiliency
+# Resolve conflicts, reuse newly available upstream code, and run relevant tests.
+git push origin resiliency/forwarding-engine
+```
+
+Use merges to preserve published feature history. Inspect upstream API and test
+changes during integration, and remove local substitutes when upstream now
+provides the same functionality.
 
 ## Communication style
 
