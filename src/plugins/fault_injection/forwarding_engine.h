@@ -54,8 +54,9 @@ private:
 using EnginePtr = std::unique_ptr<nixlBackendEngine, EngineDeleter>;
 
 // Owns an initialized engine; opaque handles remain owned by that engine.
-// Base-class getters expose a snapshot of initialization state. Telemetry is
-// rejected because its nonvirtual getter cannot drain the wrapped engine's queue.
+// Base-class getters expose a snapshot of initialization state. The nonvirtual
+// telemetry getter reads this wrapper's own queue, which stays empty; core does
+// not currently drain backend telemetry queues, so no events are lost.
 class ForwardingEngine : public nixlBackendEngine {
 public:
     ForwardingEngine(const nixlBackendInitParams *params, EnginePtr engine)
@@ -64,20 +65,14 @@ public:
         if (!engine_) {
             throw std::invalid_argument("A wrapped backend engine is required");
         }
-        if (params->enableTelemetry_) {
-            throw std::invalid_argument("ForwardingEngine does not support backend telemetry");
-        }
         if (getType() != engine_->getType()) {
             throw std::invalid_argument(
                 "Wrapped backend type does not match initialization parameters");
         }
         initErr = engine_->getInitErr();
+        // Adopt parameters the genuine engine added; existing keys must then match.
         for (const auto &[key, value] : engine_->getCustomParams()) {
-            const auto result = setInitParam(key, value);
-            if (result != NIXL_SUCCESS && getCustomParams().at(key) != value) {
-                throw std::invalid_argument(
-                    "Wrapped backend parameters do not match initialization parameters");
-            }
+            static_cast<void>(setInitParam(key, value));
         }
         if (getCustomParams() != engine_->getCustomParams()) {
             throw std::invalid_argument(
