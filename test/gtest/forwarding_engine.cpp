@@ -86,8 +86,10 @@ protected:
     using Mock = testing::StrictMock<ForwardingMock>;
 
     EnginePtr
-    makeEngine() {
-        return EnginePtr(new Mock(&params));
+    makeEngine(int *destructions = nullptr) {
+        auto *mock = new Mock(&params);
+        mock->destructions = destructions;
+        return EnginePtr(mock);
     }
 };
 
@@ -123,8 +125,7 @@ TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
 
 TEST_F(ForwardingEngineTest, DestroysOwnedEngineExactlyOnce) {
     int destructions = 0;
-    auto engine = makeEngine();
-    static_cast<Mock *>(engine.get())->destructions = &destructions;
+    auto engine = makeEngine(&destructions);
     {
         std::unique_ptr<nixlBackendEngine> wrapper =
             std::make_unique<ForwardingEngine>(&params, std::move(engine));
@@ -155,34 +156,37 @@ TEST_F(ForwardingEngineTest, RejectsNullEngineAndDestroyCallback) {
 
 TEST_F(ForwardingEngineTest, RejectsInvalidInitializationParametersAndCleansUp) {
     int destructions = 0;
-    auto engine = makeEngine();
-    static_cast<Mock *>(engine.get())->destructions = &destructions;
+    auto engine = makeEngine(&destructions);
     EXPECT_THROW(ForwardingEngine(nullptr, std::move(engine)), std::invalid_argument);
     EXPECT_EQ(destructions, 1);
-    auto engine2 = makeEngine();
+    auto engine2 = makeEngine(&destructions);
     params.customParams = nullptr;
     EXPECT_THROW(ForwardingEngine(&params, std::move(engine2)), std::invalid_argument);
+    EXPECT_EQ(destructions, 2);
 }
 
-TEST_F(ForwardingEngineTest, RejectsTelemetryAndCleansUp) {
-    int destructions = 0;
+TEST_F(ForwardingEngineTest, AcceptsTelemetryEnabledInitialization) {
     params.enableTelemetry_ = true;
-    auto engine = makeEngine();
-    static_cast<Mock *>(engine.get())->destructions = &destructions;
+    ForwardingEngine wrapper(&params, makeEngine());
+    nixlBackendEngine &base = wrapper;
+    EXPECT_FALSE(base.getInitErr());
+    EXPECT_TRUE(base.getTelemetryEvents().empty());
+}
+
+TEST_F(ForwardingEngineTest, RejectsMismatchedBackendIdentityAndCleansUp) {
+    int destructions = 0;
+    auto engine = makeEngine(&destructions);
+    params.type = "POSIX";
     EXPECT_THROW(ForwardingEngine(&params, std::move(engine)), std::invalid_argument);
     EXPECT_EQ(destructions, 1);
 }
 
-TEST_F(ForwardingEngineTest, RejectsMismatchedBackendIdentity) {
-    auto engine = makeEngine();
-    params.type = "POSIX";
-    EXPECT_THROW(ForwardingEngine(&params, std::move(engine)), std::invalid_argument);
-}
-
-TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParameters) {
-    auto engine = makeEngine();
+TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParametersAndCleansUp) {
+    int destructions = 0;
+    auto engine = makeEngine(&destructions);
     custom["caller"] = "changed-after-engine-creation";
     EXPECT_THROW(ForwardingEngine(&params, std::move(engine)), std::invalid_argument);
+    EXPECT_EQ(destructions, 1);
 }
 
 class ForwardingStatusTest : public ForwardingEngineTest,
