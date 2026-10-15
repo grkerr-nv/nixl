@@ -49,6 +49,15 @@ if sanitizer_opts.contains('thread')
     sanitizer_env.set('TSAN_OPTIONS', 'halt_on_error=1:suppressions=' + sanitizer_supp_dir / 'tsan.supp')
 endif
 
+# The forwarding engine needs only descriptors and mocks, not a live backend.
+forwarding_test = executable('forwarding_engine_test',
+    'forwarding_engine.cpp',
+    include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    dependencies: [nixl_infra, nixl_common_dep, gmock_dep,
+                   dependency('gtest', version: '>=1.11.0', main: true)])
+test('forwarding_engine', forwarding_test,
+     env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
+
 subdir('mocks')
 subdir('unit')
 subdir('plugins')
