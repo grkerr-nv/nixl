@@ -24,11 +24,13 @@ method, including optional methods and both memory-view overloads.
 
 ## Ownership and use
 
-Create the genuine engine with the original initialization parameters, then move
-it into `ForwardingEngine` using `nixl::fault::EnginePtr`. For plugin-created
-engines, supply the plugin's `destroy_engine` callback through
-`nixl::fault::EngineDeleter`. The default deleter uses `delete` and is suitable
-for directly allocated engines, including test mocks.
+The proxy plugin will create the genuine engine with the original initialization
+parameters, then move it into `ForwardingEngine` using `nixl::fault::EnginePtr`.
+It will supply the genuine plugin's `destroy_engine` callback through
+`nixl::fault::EngineDeleter` and return the forwarding engine to NIXL. This setup
+will be internal to the proxy; vLLM will continue requesting UCX normally.
+The default deleter uses `delete` and is suitable for directly allocated engines,
+including test mocks.
 
 ```cpp
 const nixl::fault::EngineDeleter destroy(plugin->destroy_engine);
