@@ -39,9 +39,10 @@ auto forwarding = std::make_unique<nixl::fault::ForwardingEngine>(
 
 The wrapper destroys the genuine engine exactly once, including when wrapper
 construction fails. The caller must keep the genuine plugin loaded until engine
-destruction completes. Null initialization parameters, a null parameter map,
-a null engine, a null destroy callback, and inconsistent backend identity or
+destruction completes. Null initialization parameters, a null engine,
+a null destroy callback, and inconsistent backend identity or
 parameters are rejected with `std::invalid_argument`.
+A null parameter map is accepted as an empty map, matching the backend interface.
 
 All calls preserve the original arguments and return values. Output references
 are passed directly to the genuine engine. Metadata, request handles, and memory
