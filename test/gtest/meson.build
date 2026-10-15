@@ -51,7 +51,7 @@ endif
 
 # The forwarding engine needs only descriptors and mocks, not a live backend.
 forwarding_test = executable('forwarding_engine_test',
-    'forwarding_engine.cpp',
+    ['forwarding_engine.cpp', 'mocks/gmock_engine.cpp'],
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
     dependencies: [nixl_infra, nixl_common_dep, gmock_dep,
                    dependency('gtest', version: '>=1.11.0', main: true)])
