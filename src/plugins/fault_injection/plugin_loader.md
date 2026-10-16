@@ -17,10 +17,9 @@ limitations under the License.
 
 # Genuine backend plugin loader
 
-`PluginLoader` loads a genuine NIXL backend from an explicit absolute shared-library
-path. The future proxy plugin will use it to create real backend engines while
-preserving the backend's reported identity and options. This component does not
-perform NIXL's name-based discovery or register itself as a backend.
+`PluginLoader` loads a genuine backend by absolute path for the future fault proxy.
+It exposes plugin metadata and creates engines; it does not register a proxy or
+perform name-based discovery.
 
 ## Use and ownership
 
@@ -29,78 +28,61 @@ nixl::fault::PluginLoader plugin("/opt/nixl/real/libplugin_UCX.so");
 auto engine = plugin.createEngine(&params);
 ```
 
-The loader passes the original initialization-parameter pointer to the plugin's
-`create_engine` callback. It preserves the resulting engine, including its
-initialization-error flag. Callers must check that flag as they normally would.
-A null parameter map is valid; a null initialization-parameter pointer is rejected.
+The loader is noncopyable. It passes `params` unchanged and preserves the engine's
+initialization-error flag; callers must check `getInitErr()`. A null parameter map
+is valid; a null `params` pointer is rejected.
 
-The returned `PluginLoader::EnginePtr` owns the engine. Its deleter calls the
-genuine plugin's `destroy_engine` callback and retains shared ownership of the
-loaded library. Engines can outlive the loader. Loader copies share one loaded
-state, initialization, and finalizer. Never release an engine from its owning
-pointer without also preserving the deleter and library lifetime.
+`EnginePtr` calls the plugin's `destroy_engine` callback and retains library
+ownership, so engines can outlive the loader. Resetting the pointer destroys the
+engine; its deleter retains ownership until the pointer itself is destroyed.
+The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Destroy and
+finalizer callbacks must not throw. Never release an engine without retaining
+its deleter and library ownership.
 
-Resetting an engine pointer destroys the engine; its deleter retains the library
-until the owning pointer itself is destroyed. After the last shared owner goes
-away, the loader calls `nixl_plugin_fini`, if present, then `dlclose`.
+## Loading and failures
 
-Loading uses `RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE`. Optional `deepbind = true`
-adds `RTLD_DEEPBIND` (default off); the proxy applies core's `NIXL_UCX_DEEPBIND`
-policy. Deep binding prefers plugin symbols over process symbols, bypassing
-`LD_PRELOAD` and sanitizer interposition. Enable only when needed; unsupported
+Loading uses `RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE`. `RTLD_NODELETE` avoids
+Abseil/TLS unloading problems on older glibc; cleanup does not promise unmapping.
+
+Optional `deepbind = true` adds `RTLD_DEEPBIND` (default off). The proxy applies
+core's `NIXL_UCX_DEEPBIND` policy. Deep binding prefers plugin symbols, bypassing
+`LD_PRELOAD` and sanitizer interposition; enable only when needed. Unsupported
 platforms warn and continue without it.
 
-`RTLD_NODELETE` keeps code resident to avoid Abseil/TLS unloading problems on older
-glibc. Finalization and handle release still occur in ownership order; physical
-unmapping is not promised. Plugin destroy and finalizer callbacks must not throw.
+- `std::invalid_argument`: empty or relative paths, self-loading (including
+  symlinks), or null initialization parameters.
+- `std::runtime_error`: missing libraries or initialization symbols, failed
+  initialization, API mismatches, missing required callbacks, empty names or
+  versions, or failed engine creation. Diagnostics include the library path;
+  standard exceptions from initializers and factories retain their message.
 
-## Validation and failures
+Required callbacks: `create_engine`, `destroy_engine`, `get_plugin_name`, and
+`get_plugin_version`. Names and versions must be non-null. Optional
+`get_backend_options` and `get_backend_mems` return empty results when absent.
+The API check does not prove C++ ABI compatibility; use matching interfaces and
+toolchains.
 
-Loading rejects relative or empty paths, a path that resolves to the shared object
-containing the loader (the proxy itself, including via symlink), missing libraries or initialization
-symbols, failed initialization, API-version mismatches, missing required
-callbacks, and null or empty plugin names and versions. The required callbacks
-are `create_engine`, `destroy_engine`, `get_plugin_name`, and `get_plugin_version`.
-The version check rejects a reported API mismatch; it cannot prove C++ ABI or
-toolchain compatibility. Build the proxy and backend against matching interfaces.
+Successful initialization gets a matching finalizer call, even if validation
+fails. Initializers that return null or throw must clean up partial state;
+failed factories must clean up partial engine allocations.
 
-The optional `get_backend_options` and `get_backend_mems` callbacks default to
-empty results when absent, matching core behavior. The finalizer is optional too.
+## Tests
 
-Loading failures and null factory results throw `std::runtime_error` with the
-library path. Standard exceptions from initialization and factory callbacks are
-reported with their original message and library path. Invalid input paths (including a self-referencing one) and
-null initialization parameters throw `std::invalid_argument`.
-
-A successful, non-null initialization result owns a matching finalizer call,
-including when subsequent validation fails. An initializer that returns null or
-throws must clean up its own partial state, as the loader has no valid plugin
-instance to finalize. Failed engine creation must likewise clean up partial
-engine allocations inside the plugin.
-
-## Validation tests
-
-From the repository root, with NIXL build dependencies and Google Test/Mock:
+With NIXL build dependencies and Google Test/Mock:
 
 ```bash
 meson setup build --buildtype=debugoptimized -Denable_plugins=POSIX -Dbuild_examples=false -Dwith_trace=false
 meson test -C build plugin_loader --print-errorlogs
 ```
 
-For ASan/UBSan validation with this workspace's unsanitized system Abseil, add
-`-Dsanitizer=address,undefined -Dcpp_args=-DNDEBUG_SANITIZER` at setup. The latter
-keeps Abseil's hash-table layout compatible with the installed library by disabling
-its extra sanitizer generation metadata; ASan and UBSan remain enabled.
+Fixture plugins test metadata, validation, parameter identity, initialization
+errors, factory failures, copy prevention, ownership, cleanup order, self-loading,
+and deep binding. No GPUs, real UCX plugin, peers, or inference framework needed.
 
-The test builds the loader source and small fixture shared libraries. It checks
-plugin metadata, required and optional callbacks, parameter-pointer identity,
-failed initialization and factories, initialization-error preservation, callback
-cleanup, copied loaders, moved engine owners, and multiple engines outliving
-their loader. Lifecycle assertions observe finalization explicitly rather than
-assuming that `dlclose` unmaps a library.
+For this workspace's unsanitized system Abseil, add
+`-Dsanitizer=address,undefined -Dcpp_args=-DNDEBUG_SANITIZER` at setup.
+`NDEBUG_SANITIZER` disables extra Abseil generation metadata to preserve its
+hash-table ABI; ASan and UBSan remain enabled. The deep-binding test is skipped.
 
-No GPUs, real UCX plugin, peer processes, or inference framework are needed.
-This PR does not wire the loader into `ForwardingEngine`, install a proxy under
-UCX's filename, select UCX-specific deep binding, parse TOML, or inject faults.
-The loader's owning pointer carries library lifetime; future forwarder integration
-must retain that ownership rather than copy only a raw engine and destroy callback.
+Forwarder integration, proxy installation, UCX binding-policy selection, TOML,
+and fault injection remain separate work.

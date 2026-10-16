@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,6 +36,8 @@ loader_deepbind_value() {
 }
 
 using nixl::fault::PluginLoader;
+static_assert(!std::is_copy_constructible_v<PluginLoader>);
+static_assert(!std::is_copy_assignable_v<PluginLoader>);
 using loader_fixture::Mode;
 using loader_fixture::Event;
 
@@ -208,19 +211,6 @@ TEST_F(PluginLoaderTest, ResetEngineRetainsLibraryThroughItsDeleter) {
     owner.reset();
     EXPECT_EQ(fixture.events.back(), Event::Finalize);
     EXPECT_EQ(fixture.events.size(), 5U);
-}
-
-TEST_F(PluginLoaderTest, CopiesShareOneInitializationAndFinalizer) {
-    Fixture fixture;
-    std::optional<PluginLoader> copy;
-    {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
-        copy.emplace(loader);
-    }
-    EXPECT_EQ(copy->getName(), "LOADER_FIXTURE");
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init}));
-    copy.reset();
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init, Event::Finalize}));
 }
 
 TEST_F(PluginLoaderTest, AcceptsNullParameterMap) {
