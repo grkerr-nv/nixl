@@ -17,20 +17,16 @@ limitations under the License.
 
 # Resiliency forwarding engine
 
-`forwarding_engine.h` provides `nixl::fault::ForwardingEngine`, the inert engine
-layer for the planned fault-injection proxy. It is a header-only internal helper,
-not a loadable plugin. It overrides every current `nixlBackendEngine` virtual
-method, including optional methods and both memory-view overloads.
+`forwarding_engine.h` provides `nixl::fault::ForwardingEngine`, a header-only
+helper for the planned fault-injection proxy. It forwards every current
+`nixlBackendEngine` virtual method, including optional methods and both
+memory-view overloads.
 
 ## Ownership and use
 
 The proxy plugin will create the genuine engine with the original initialization
-parameters, then move it into `ForwardingEngine` using `nixl::fault::EnginePtr`.
-It will supply the genuine plugin's `destroy_engine` callback through
-`nixl::fault::EngineDeleter` and return the forwarding engine to NIXL. This setup
-will be internal to the proxy; vLLM will continue requesting UCX normally.
-The default deleter uses `delete` and is suitable for directly allocated engines,
-including test mocks.
+parameters, move it into `ForwardingEngine`, and return the wrapper to NIXL.
+vLLM will continue requesting UCX normally.
 
 ```cpp
 const nixl::fault::EngineDeleter destroy(plugin->destroy_engine);
@@ -39,42 +35,36 @@ auto forwarding = std::make_unique<nixl::fault::ForwardingEngine>(
     &params, std::move(engine));
 ```
 
-The wrapper destroys the genuine engine exactly once, including when wrapper
-construction fails. The caller must keep the genuine plugin loaded until engine
-destruction completes. Null initialization parameters, a null engine,
-a null destroy callback, and inconsistent backend identity or
-parameters are rejected with `std::invalid_argument`.
-A null parameter map is accepted as an empty map, matching the backend interface.
+`EnginePtr` owns the engine. Supply the genuine plugin's `destroy_engine` callback
+through `EngineDeleter`; its default uses `delete` for directly allocated engines,
+including test mocks. Keep the plugin loaded until engine destruction completes.
+Cleanup runs once, including when wrapper construction fails.
 
-All calls preserve the original arguments and return values. Output references
-are passed directly to the genuine engine. Metadata, request handles, and memory
-views remain genuine-backend objects; the wrapper does not replace or free them.
-Call the corresponding release methods as usual before destroying the engine.
+Null initialization parameters, a null engine or destroy callback, and mismatched
+backend types or parameter maps throw `std::invalid_argument`. A null parameter
+map is valid. Pass the same initialization parameters to both engines.
 
-## Nonvirtual state and limitations
+Calls preserve arguments, return values, and output references. Metadata, request
+handles, and memory views stay genuine-backend objects. Release them through the
+corresponding methods before destroying the engine.
 
-The base class exposes initialization state through nonvirtual getters. The
-wrapper preserves the genuine engine's initialization error, backend type, and
-parameter map, including parameters discovered during engine initialization.
-These are snapshots at construction, not live views of later backend changes.
-Use the same initialization parameters for both engines.
+## Limitations
 
-Telemetry-enabled initialization is accepted, so `NIXL_TELEMETRY_ENABLE` and
-`captureTelemetry` deployments behave as they do without the wrapper. The
-backend telemetry getter is nonvirtual and returns the wrapper's own queue, which
-stays empty. No backend currently calls `addTelemetryEvent` and core does not
-call `getTelemetryEvents`, so nothing is lost today. If backend telemetry comes
-into use, forward it by draining the genuine engine's public
-`getTelemetryEvents()` into the wrapper's queue.
+Nonvirtual getters expose a construction-time snapshot of the genuine engine's
+initialization error, type, and parameters, including discovered parameters.
 
-This helper does not load shared libraries, preserve plugin-level identity by
-itself, parse fault configuration, inject errors, or measure forwarding overhead.
-Those remain subsequent steps. Functional forwarding tests do not establish the
-design's statistical non-perturbation requirement.
+Telemetry-enabled initialization is accepted. The nonvirtual telemetry getter
+reads the wrapper's own empty queue. No backend currently calls
+`addTelemetryEvent`, and core does not call `getTelemetryEvents`. If that changes,
+drain the genuine engine's public `getTelemetryEvents()` into the wrapper queue.
+
+Plugin loading, plugin-level identity, fault configuration, injection, and overhead
+measurement remain separate work. Functional tests do not prove the design's
+statistical non-perturbation requirement.
 
 ## Validation
 
-From the repository root, with NIXL build dependencies and Google Test/Mock:
+With NIXL dependencies and Google Test/Mock installed:
 
 ```bash
 meson setup build --buildtype=debugoptimized -Denable_plugins=POSIX -Dbuild_examples=false -Dwith_trace=false
@@ -82,10 +72,8 @@ meson compile -C build forwarding_engine_test
 meson test -C build --no-rebuild forwarding_engine --print-errorlogs
 ```
 
-The dedicated target needs no GPUs, network peers, or inference framework. Tests
-exercise every current virtual method through a base-class reference, checking
-call counts, argument identity, statuses, output parameters, opaque handles,
-initialization state, and destruction. Status tests cover representative success,
-in-progress, and error results. Add tests and overrides when the backend interface
-grows; new pure virtual methods and changed overridden signatures also fail
-compilation.
+Tests need no GPUs, network peers, or inference framework. They cover every
+current virtual method, argument identity, representative statuses, outputs,
+opaque handles, initialization, and cleanup. Extend the wrapper and tests when
+the interface grows; new pure virtual methods and changed overridden signatures
+also fail compilation.
