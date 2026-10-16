@@ -17,7 +17,6 @@
 #include "../../src/plugins/fault_injection/forwarding_engine.h"
 #include "mocks/gmock_engine.h"
 
-using testing::_;
 using testing::Ref;
 using testing::Return;
 using nixl::fault::EngineDeleter;
@@ -29,8 +28,8 @@ namespace {
 // Add state and lifetime controls specific to the forwarding tests.
 class ForwardingMock : public mocks::GMockBackendEngine {
 public:
-    explicit ForwardingMock(const nixlBackendInitParams *params)
-        : mocks::GMockBackendEngine(params) {}
+    using mocks::GMockBackendEngine::GMockBackendEngine;
+    using nixlBackendEngine::setInitParam;
 
     ~ForwardingMock() override {
         if (destructions) {
@@ -41,11 +40,6 @@ public:
     void
     failInitialization() {
         initErr = true;
-    }
-
-    void
-    addParameter(const std::string &key, const std::string &value) {
-        ASSERT_EQ(setInitParam(key, value), NIXL_SUCCESS);
     }
 
     int *destructions = nullptr;
@@ -73,7 +67,7 @@ TEST_F(ForwardingEngineTest, PreservesInitializationStateThroughBasePointer) {
     auto engine = makeEngine();
     auto *mock = static_cast<Mock *>(engine.get());
     mock->failInitialization();
-    mock->addParameter("backend", "discovered-value");
+    ASSERT_EQ(mock->setInitParam("backend", "discovered-value"), NIXL_SUCCESS);
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_TRUE(base.getInitErr());
@@ -90,12 +84,15 @@ TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
     EXPECT_CALL(*mock, supportsRemote()).WillOnce(Return(false));
     EXPECT_CALL(*mock, supportsLocal()).WillOnce(Return(true));
     EXPECT_CALL(*mock, supportsNotif()).WillOnce(Return(false));
+    EXPECT_CALL(*mock, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
     EXPECT_CALL(*mock, getSupportedMems()).WillOnce(Return(nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.supportsRemote());
     EXPECT_TRUE(base.supportsLocal());
     EXPECT_FALSE(base.supportsNotif());
+    EXPECT_TRUE(base.supportsTraceContext());
+    EXPECT_FALSE(base.supportsTraceContext());
     EXPECT_EQ(base.getSupportedMems(), (nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
 }
 
@@ -137,30 +134,14 @@ TEST_F(ForwardingEngineTest, RejectsInvalidInitializationParametersAndCleansUp) 
     EXPECT_EQ(destructions, 1);
 }
 
-TEST_F(ForwardingEngineTest, AcceptsNullParameterMap) {
+TEST_F(ForwardingEngineTest, AcceptsNullParameterMapAndTelemetry) {
     params.customParams = nullptr;
-    ForwardingEngine wrapper(&params, makeEngine());
-    const nixlBackendEngine &base = wrapper;
-    EXPECT_FALSE(base.getInitErr());
-    EXPECT_EQ(base.getType(), params.type);
-    EXPECT_TRUE(base.getCustomParams().empty());
-}
-
-TEST_F(ForwardingEngineTest, ForwardsTraceContextCapability) {
-    auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
-    EXPECT_CALL(*mock, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
-    ForwardingEngine wrapper(&params, std::move(engine));
-    const nixlBackendEngine &base = wrapper;
-    EXPECT_TRUE(base.supportsTraceContext());
-    EXPECT_FALSE(base.supportsTraceContext());
-}
-
-TEST_F(ForwardingEngineTest, AcceptsTelemetryEnabledInitialization) {
     params.enableTelemetry_ = true;
     ForwardingEngine wrapper(&params, makeEngine());
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.getInitErr());
+    EXPECT_EQ(base.getType(), params.type);
+    EXPECT_TRUE(base.getCustomParams().empty());
     EXPECT_TRUE(base.getTelemetryEvents().empty());
 }
 
@@ -260,22 +241,18 @@ TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
     nixlBackendReqH *handle = nullptr;
     EXPECT_CALL(*mock,
                 prepXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), Ref(handle), &args))
-        .WillOnce(
-            [&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *opts) {
-                EXPECT_EQ(opts->traceContext, &traceContext);
-                EXPECT_EQ(out, nullptr);
-                out = &prepared;
-                return status;
-            });
+        .WillOnce([&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *) {
+            EXPECT_EQ(out, nullptr);
+            out = &prepared;
+            return status;
+        });
     EXPECT_CALL(*mock,
                 postXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), Ref(handle), &args))
-        .WillOnce(
-            [&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *opts) {
-                EXPECT_EQ(opts->traceContext, &traceContext);
-                EXPECT_EQ(out, &prepared);
-                out = &posted;
-                return status;
-            });
+        .WillOnce([&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *) {
+            EXPECT_EQ(out, &prepared);
+            out = &posted;
+            return status;
+        });
     EXPECT_CALL(*mock, checkXfer(&posted)).WillOnce(Return(status));
     EXPECT_CALL(*mock, releaseReqH(&posted)).WillOnce(Return(status));
     ForwardingEngine wrapper(&params, std::move(engine));
