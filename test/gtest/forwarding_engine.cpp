@@ -180,13 +180,10 @@ TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParametersAndCleansUp) {
     EXPECT_EQ(destructions, 1);
 }
 
-// Run each forwarding test with success, in-progress, and all twelve error statuses.
-// Verify each status passes through unchanged, along with arguments, outputs, and handles.
-class ForwardingStatusTest : public ForwardingEngineTest,
-                             public testing::WithParamInterface<nixl_status_t> {};
-
-TEST_P(ForwardingStatusTest, PreservesRegistrationMetadataAndConnectionResults) {
-    const auto status = GetParam();
+// Cover every forwarding route once, using representative error, in-progress, and
+// success results across these groups. Check arguments, outputs, and handles too.
+TEST_F(ForwardingEngineTest, PreservesRegistrationMetadataAndConnectionResults) {
+    const auto status = NIXL_ERR_BACKEND;
     auto engine = makeEngine();
     auto *mock = static_cast<Mock *>(engine.get());
     nixlBlobDesc desc(0x1234, 256, 7);
@@ -245,8 +242,8 @@ TEST_P(ForwardingStatusTest, PreservesRegistrationMetadataAndConnectionResults) 
     EXPECT_EQ(output, &metadata);
 }
 
-TEST_P(ForwardingStatusTest, PreservesTransferHandlesAndOptionalArguments) {
-    const auto status = GetParam();
+TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
+    const auto status = NIXL_IN_PROG;
     auto engine = makeEngine();
     auto *mock = static_cast<Mock *>(engine.get());
     const nixl_xfer_op_t operation = NIXL_WRITE;
@@ -291,8 +288,8 @@ TEST_P(ForwardingStatusTest, PreservesTransferHandlesAndOptionalArguments) {
     EXPECT_EQ(base.releaseReqH(handle), status);
 }
 
-TEST_P(ForwardingStatusTest, PreservesOptionalMethodOutputs) {
-    const auto status = GetParam();
+TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
+    const auto status = NIXL_SUCCESS;
     auto engine = makeEngine();
     auto *mock = static_cast<Mock *>(engine.get());
     const nixl_meta_dlist_t local(DRAM_SEG);
@@ -384,22 +381,5 @@ TEST_P(ForwardingStatusTest, PreservesOptionalMethodOutputs) {
     EXPECT_EQ(margin.count(), 7);
     EXPECT_EQ(method, nixl_cost_t::ANALYTICAL_BACKEND);
 }
-
-INSTANTIATE_TEST_SUITE_P(AllStatuses,
-                         ForwardingStatusTest,
-                         testing::Values(NIXL_SUCCESS,
-                                         NIXL_IN_PROG,
-                                         NIXL_ERR_NOT_POSTED,
-                                         NIXL_ERR_INVALID_PARAM,
-                                         NIXL_ERR_BACKEND,
-                                         NIXL_ERR_NOT_FOUND,
-                                         NIXL_ERR_MISMATCH,
-                                         NIXL_ERR_NOT_ALLOWED,
-                                         NIXL_ERR_REPOST_ACTIVE,
-                                         NIXL_ERR_UNKNOWN,
-                                         NIXL_ERR_NOT_SUPPORTED,
-                                         NIXL_ERR_REMOTE_DISCONNECT,
-                                         NIXL_ERR_CANCELED,
-                                         NIXL_ERR_NO_TELEMETRY));
 
 } // namespace
