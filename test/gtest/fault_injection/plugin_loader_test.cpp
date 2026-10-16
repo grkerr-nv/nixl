@@ -278,6 +278,7 @@ TEST_F(PluginLoaderTest, RejectsLoadingTheProxyItself) {
 #endif
 #endif
 
+#if !defined(LOADER_TEST_SANITIZED) && defined(RTLD_DEEPBIND)
 // Binding is fixed when a library is first loaded, so each mode gets its own copy
 // of the fixture that only the loader ever opens.
 int
@@ -292,6 +293,7 @@ probeDeepBind(const char *path, bool deepbind) {
     dlclose(handle);
     return value;
 }
+#endif
 
 TEST_F(PluginLoaderTest, DeepBindIsOptIn) {
 #if defined(LOADER_TEST_SANITIZED) || !defined(RTLD_DEEPBIND)
