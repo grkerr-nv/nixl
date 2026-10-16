@@ -66,6 +66,7 @@ forwarding_test = executable('forwarding_engine_test',
 test('forwarding_engine', forwarding_test,
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
 
+subdir('fault_injection')
 subdir('mocks')
 subdir('plugins')
 
