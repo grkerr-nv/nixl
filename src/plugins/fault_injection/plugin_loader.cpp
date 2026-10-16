@@ -91,9 +91,11 @@ PluginLoader::PluginLoader(const std::filesystem::path &path, bool deepbind) {
                                  "': " + dlerror());
     }
 
-    using Initialize = nixlBackendPlugin *(*)();
-    dlerror();
-    const auto initialize = reinterpret_cast<Initialize>(dlsym(state->handle, "nixl_plugin_init"));
+    // nixl_plugin_init takes no arguments and returns the plugin interface.
+    using InitializeFunction = nixlBackendPlugin *();
+    dlerror(); // Clear stale errors before looking up the entrypoint.
+    const auto initialize =
+        reinterpret_cast<InitializeFunction *>(dlsym(state->handle, "nixl_plugin_init"));
     if (const char *error = dlerror(); error || !initialize) {
         throw std::runtime_error("Cannot resolve nixl_plugin_init in '" + path.string() +
                                  "': " + (error ? error : "null entrypoint"));
