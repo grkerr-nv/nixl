@@ -33,25 +33,41 @@ loader_fixture_no_fini = shared_library('loader_fixture_no_fini',
     dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
     link_with: loader_fixture_mocks)
 
-# Deep-bind probe: the plugin calls loader_deepbind_value(), defined both in this
-# dependency and (competing) in the test executable.
-loader_deepbind_dep = shared_library('loader_deepbind_dep', 'plugin_loader_deepbind_dep.cpp')
+loader_binding_args = []
+loader_binding_fixtures = []
+loader_sanitizers = sanitizer_opts + get_option('b_sanitize').split(',')
+if not loader_sanitizers.contains('address') and not loader_sanitizers.contains('thread') and cpp.compiles('''
+    #include <dlfcn.h>
+    #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    #error RTLD_DEEPBIND is incompatible with sanitizer runtimes
+    #elif defined(__has_feature)
+    #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+    #error RTLD_DEEPBIND is incompatible with sanitizer runtimes
+    #endif
+    #endif
+    int main() { return RTLD_DEEPBIND; }
+''', name: 'loader deep-bind support')
+    # Competes with the test executable's definition of loader_deepbind_value().
+    loader_deepbind_dep = shared_library('loader_deepbind_dep', 'plugin_loader_deepbind_dep.cpp')
+    loader_fixture_deepbind = shared_library('loader_fixture_deepbind',
+        'plugin_loader_fixture.cpp',
+        cpp_args: ['-DLOADER_FIXTURE_DEEPBIND_PROBE'],
+        include_directories: [nixl_inc_dirs, utils_inc_dirs],
+        dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
+        link_with: [loader_fixture_mocks, loader_deepbind_dep])
 
-loader_fixture_deepbind = shared_library('loader_fixture_deepbind',
-    'plugin_loader_fixture.cpp',
-    cpp_args: ['-DLOADER_FIXTURE_DEEPBIND_PROBE'],
-    include_directories: [nixl_inc_dirs, utils_inc_dirs],
-    dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
-    link_with: [loader_fixture_mocks, loader_deepbind_dep])
-
-# Same plugin again as a separate file: binding is fixed per loaded library, and
-# RTLD_NODELETE keeps the first one resident, so each mode needs its own copy.
-loader_fixture_plain_bind = shared_library('loader_fixture_plain_bind',
-    'plugin_loader_fixture.cpp',
-    cpp_args: ['-DLOADER_FIXTURE_DEEPBIND_PROBE'],
-    include_directories: [nixl_inc_dirs, utils_inc_dirs],
-    dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
-    link_with: [loader_fixture_mocks, loader_deepbind_dep])
+    # Separate libraries need distinct binding policies, but share compiled code.
+    loader_fixture_plain_bind = shared_library('loader_fixture_plain_bind',
+        objects: loader_fixture_deepbind.extract_objects('plugin_loader_fixture.cpp'),
+        dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
+        link_with: [loader_fixture_mocks, loader_deepbind_dep])
+    loader_binding_args = [
+        '-DLOADER_TEST_DEEPBIND',
+        '-DLOADER_DEEPBIND_PATH="' + loader_fixture_deepbind.full_path() + '"',
+        '-DLOADER_PLAIN_BIND_PATH="' + loader_fixture_plain_bind.full_path() + '"',
+    ]
+    loader_binding_fixtures = [loader_fixture_deepbind, loader_fixture_plain_bind]
+endif
 
 loader_fixture_missing_init = shared_library('loader_fixture_missing_init',
     'plugin_loader_missing_init.cpp')
@@ -72,10 +88,8 @@ plugin_loader_test = executable('plugin_loader_test',
         '-DLOADER_FIXTURE_PATH="' + loader_fixture.full_path() + '"',
         '-DLOADER_NO_FINI_PATH="' + loader_fixture_no_fini.full_path() + '"',
         '-DLOADER_MISSING_INIT_PATH="' + loader_fixture_missing_init.full_path() + '"',
-        '-DLOADER_DEEPBIND_PATH="' + loader_fixture_deepbind.full_path() + '"',
-        '-DLOADER_PLAIN_BIND_PATH="' + loader_fixture_plain_bind.full_path() + '"',
         '-DLOADER_SELF_LOAD_PATH="' + loader_self_load.full_path() + '"',
-    ],
+    ] + loader_binding_args,
     include_directories: [nixl_inc_dirs, utils_inc_dirs,
                          include_directories('../../../src/plugins/fault_injection')],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep,
@@ -84,6 +98,5 @@ plugin_loader_test = executable('plugin_loader_test',
 
 test('plugin_loader', plugin_loader_test,
      depends: [loader_fixture, loader_fixture_no_fini, loader_fixture_missing_init,
-                loader_self_load, loader_fixture_deepbind,
-                loader_fixture_plain_bind],
+                loader_self_load] + loader_binding_fixtures,
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
