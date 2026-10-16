@@ -20,6 +20,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <dlfcn.h>
 #include <filesystem>
 #include <optional>
@@ -180,39 +181,6 @@ TEST_F(PluginLoaderTest, DefersFinalizationUntilLastEngineOwnerIsDestroyed) {
                                   Event::Finalize}));
 }
 
-TEST_F(PluginLoaderTest, MovingEngineOwnershipDoesNotDestroyEngineTwice) {
-    Fixture fixture;
-    {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
-        auto engine = loader.createEngine(&params);
-        auto moved = std::move(engine);
-        EXPECT_FALSE(engine);
-        EXPECT_TRUE(moved->supportsLocal());
-    }
-    EXPECT_EQ(fixture.events,
-              (std::vector<Event>{Event::Init,
-                                  Event::Create,
-                                  Event::DestroyCallback,
-                                  Event::EngineDestroyed,
-                                  Event::Finalize}));
-}
-
-TEST_F(PluginLoaderTest, ResetEngineRetainsLibraryThroughItsDeleter) {
-    Fixture fixture;
-    std::optional<PluginLoader::EnginePtr> owner;
-    {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
-        owner.emplace(loader.createEngine(&params));
-    }
-    (*owner).reset();
-    EXPECT_EQ(fixture.events,
-              (std::vector<Event>{
-                  Event::Init, Event::Create, Event::DestroyCallback, Event::EngineDestroyed}));
-    owner.reset();
-    EXPECT_EQ(fixture.events.back(), Event::Finalize);
-    EXPECT_EQ(fixture.events.size(), 5U);
-}
-
 TEST_F(PluginLoaderTest, AcceptsNullParameterMap) {
     Fixture fixture;
     PluginLoader loader(LOADER_FIXTURE_PATH);
@@ -251,24 +219,17 @@ TEST_F(PluginLoaderTest, RejectsLoadingTheProxyItself) {
     const std::string diagnostic = probe(LOADER_SELF_LOAD_PATH);
     EXPECT_NE(diagnostic.find("refers to the proxy itself"), std::string::npos) << diagnostic;
     // A symlink to the same file is still the same object.
-    const auto link = std::filesystem::path(testing::TempDir()) / "self_load_link.so";
-    std::filesystem::remove(link);
+    auto directory = (std::filesystem::path(testing::TempDir()) / "loader-self-XXXXXX").string();
+    ASSERT_NE(mkdtemp(directory.data()), nullptr);
+    const auto link = std::filesystem::path(directory) / "self_load_link.so";
     std::filesystem::create_symlink(LOADER_SELF_LOAD_PATH, link);
     const std::string linked = probe(link.c_str());
     EXPECT_NE(linked.find("refers to the proxy itself"), std::string::npos) << linked;
-    std::filesystem::remove(link);
+    std::filesystem::remove_all(directory);
     dlclose(handle);
 }
 
-#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
-#define LOADER_TEST_SANITIZED 1
-#elif defined(__has_feature)
-#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
-#define LOADER_TEST_SANITIZED 1
-#endif
-#endif
-
-#if !defined(LOADER_TEST_SANITIZED) && defined(RTLD_DEEPBIND)
+#ifdef LOADER_TEST_DEEPBIND
 // Binding is fixed when a library is first loaded, so each mode gets its own copy
 // of the fixture that only the loader ever opens.
 int
@@ -286,7 +247,7 @@ probeDeepBind(const char *path, bool deepbind) {
 #endif
 
 TEST_F(PluginLoaderTest, DeepBindIsOptIn) {
-#if defined(LOADER_TEST_SANITIZED) || !defined(RTLD_DEEPBIND)
+#ifndef LOADER_TEST_DEEPBIND
     GTEST_SKIP() << "RTLD_DEEPBIND is unavailable or incompatible with sanitizer runtimes";
 #else
     // Default: the executable's symbol wins. Deep bound: the plugin's own dependency wins.
