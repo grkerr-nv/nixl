@@ -76,13 +76,13 @@ meson test -C build plugin_loader --print-errorlogs
 ```
 
 Fixture plugins test metadata, validation, parameter identity, initialization
-errors, factory failures, copy prevention, ownership, cleanup order, self-loading,
-and deep binding. No GPUs, real UCX plugin, peers, or inference framework needed.
+errors, factory failures, copy prevention, ownership, cleanup order, and self-loading.
+No GPUs, real UCX plugin, peers, or inference framework needed.
 
 For this workspace's unsanitized system Abseil, add
 `-Dsanitizer=address,undefined -Dcpp_args=-DNDEBUG_SANITIZER` at setup.
 `NDEBUG_SANITIZER` disables extra Abseil generation metadata to preserve its
-hash-table ABI; ASan and UBSan remain enabled. The deep-binding test is skipped.
+hash-table ABI; ASan and UBSan remain enabled.
 
 Forwarder integration, proxy installation, UCX binding-policy selection, TOML,
 and fault injection remain separate work.
