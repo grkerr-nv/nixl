@@ -136,6 +136,7 @@ PluginLoader::EngineDeleter::EngineDeleter(std::shared_ptr<State> state)
 
 void
 PluginLoader::EngineDeleter::operator()(nixlBackendEngine *engine) const noexcept {
+    // std::unique_ptr invokes this automatically during engine cleanup.
     if (engine) {
         state_->plugin->destroy_engine(engine);
     }

@@ -50,6 +50,10 @@ public:
     // deepbind adds RTLD_DEEPBIND, as core does for UCX when NIXL_UCX_DEEPBIND is set.
     explicit PluginLoader(const std::filesystem::path &path, bool deepbind = false);
 
+    PluginLoader(const PluginLoader &) = delete;
+    PluginLoader &
+    operator=(const PluginLoader &) = delete;
+
     std::string
     getName() const;
     std::string
@@ -65,7 +69,7 @@ public:
     createEngine(const nixlBackendInitParams *params) const;
 
 private:
-    // Shared by loader copies and engine deleters. Finalize only after the last owner.
+    // Shared by this loader and engine deleters. Finalize only after the last owner.
     std::shared_ptr<State> state_;
 };
 
