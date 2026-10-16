@@ -17,8 +17,12 @@
 #include "../../src/plugins/fault_injection/forwarding_engine.h"
 #include "mocks/gmock_engine.h"
 
+using testing::AllOf;
+using testing::DoAll;
+using testing::Eq;
 using testing::Ref;
 using testing::Return;
+using testing::SetArgReferee;
 using nixl::fault::EngineDeleter;
 using nixl::fault::EnginePtr;
 using nixl::fault::ForwardingEngine;
@@ -55,19 +59,18 @@ protected:
                                  .syncMode = nixl_thread_sync_t::NIXL_THREAD_SYNC_NONE};
     using Mock = testing::StrictMock<ForwardingMock>;
 
-    EnginePtr
+    std::unique_ptr<Mock, EngineDeleter>
     makeEngine(int *destructions = nullptr) {
         auto *mock = new Mock(&params);
         mock->destructions = destructions;
-        return EnginePtr(mock);
+        return std::unique_ptr<Mock, EngineDeleter>(mock);
     }
 };
 
 TEST_F(ForwardingEngineTest, PreservesInitializationStateThroughBasePointer) {
     auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
-    mock->failInitialization();
-    ASSERT_EQ(mock->setInitParam("backend", "discovered-value"), NIXL_SUCCESS);
+    engine->failInitialization();
+    ASSERT_EQ(engine->setInitParam("backend", "discovered-value"), NIXL_SUCCESS);
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_TRUE(base.getInitErr());
@@ -80,12 +83,11 @@ TEST_F(ForwardingEngineTest, PreservesInitializationStateThroughBasePointer) {
 
 TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
     auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
-    EXPECT_CALL(*mock, supportsRemote()).WillOnce(Return(false));
-    EXPECT_CALL(*mock, supportsLocal()).WillOnce(Return(true));
-    EXPECT_CALL(*mock, supportsNotif()).WillOnce(Return(false));
-    EXPECT_CALL(*mock, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
-    EXPECT_CALL(*mock, getSupportedMems()).WillOnce(Return(nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
+    EXPECT_CALL(*engine, supportsRemote()).WillOnce(Return(false));
+    EXPECT_CALL(*engine, supportsLocal()).WillOnce(Return(true));
+    EXPECT_CALL(*engine, supportsNotif()).WillOnce(Return(false));
+    EXPECT_CALL(*engine, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
+    EXPECT_CALL(*engine, getSupportedMems()).WillOnce(Return(nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.supportsRemote());
@@ -166,7 +168,6 @@ TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParametersAndCleansUp) {
 TEST_F(ForwardingEngineTest, PreservesRegistrationMetadataAndConnectionResults) {
     const auto status = NIXL_ERR_BACKEND;
     auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
     nixlBlobDesc desc(0x1234, 256, 7);
     const nixl_mem_t memory = DRAM_SEG;
     nixlBackendMD metadata(false);
@@ -175,33 +176,21 @@ TEST_F(ForwardingEngineTest, PreservesRegistrationMetadataAndConnectionResults) 
     const std::string connection = "connection";
     std::string publicData;
     std::string connInfo;
-    EXPECT_CALL(*mock, registerMem(Ref(desc), Ref(memory), Ref(output)))
-        .WillOnce([&](const auto &, const auto &, auto &out) {
-            out = &metadata;
-            return status;
-        });
-    EXPECT_CALL(*mock, deregisterMem(&metadata)).WillOnce(Return(status));
-    EXPECT_CALL(*mock, connect(Ref(peer))).WillOnce(Return(status));
-    EXPECT_CALL(*mock, disconnect(Ref(peer))).WillOnce(Return(status));
-    EXPECT_CALL(*mock, unloadMD(&metadata)).WillOnce(Return(status));
-    EXPECT_CALL(*mock, getPublicData(&metadata, Ref(publicData))).WillOnce([&](auto *, auto &data) {
-        data = "public-data";
-        return status;
-    });
-    EXPECT_CALL(*mock, getConnInfo(Ref(connInfo))).WillOnce([&](auto &data) {
-        data = connection;
-        return status;
-    });
-    EXPECT_CALL(*mock, loadRemoteConnInfo(Ref(peer), Ref(connection))).WillOnce(Return(status));
-    EXPECT_CALL(*mock, loadRemoteMD(Ref(desc), Ref(memory), Ref(peer), Ref(output)))
-        .WillOnce([&](const auto &, const auto &, const auto &, auto &out) {
-            out = &metadata;
-            return status;
-        });
-    EXPECT_CALL(*mock, loadLocalMD(&metadata, Ref(output))).WillOnce([&](auto *, auto &out) {
-        out = &metadata;
-        return status;
-    });
+    EXPECT_CALL(*engine, registerMem(Ref(desc), Ref(memory), Ref(output)))
+        .WillOnce(DoAll(SetArgReferee<2>(&metadata), Return(status)));
+    EXPECT_CALL(*engine, deregisterMem(&metadata)).WillOnce(Return(status));
+    EXPECT_CALL(*engine, connect(Ref(peer))).WillOnce(Return(status));
+    EXPECT_CALL(*engine, disconnect(Ref(peer))).WillOnce(Return(status));
+    EXPECT_CALL(*engine, unloadMD(&metadata)).WillOnce(Return(status));
+    EXPECT_CALL(*engine, getPublicData(&metadata, Ref(publicData)))
+        .WillOnce(DoAll(SetArgReferee<1>("public-data"), Return(status)));
+    EXPECT_CALL(*engine, getConnInfo(Ref(connInfo)))
+        .WillOnce(DoAll(SetArgReferee<0>(connection), Return(status)));
+    EXPECT_CALL(*engine, loadRemoteConnInfo(Ref(peer), Ref(connection))).WillOnce(Return(status));
+    EXPECT_CALL(*engine, loadRemoteMD(Ref(desc), Ref(memory), Ref(peer), Ref(output)))
+        .WillOnce(DoAll(SetArgReferee<3>(&metadata), Return(status)));
+    EXPECT_CALL(*engine, loadLocalMD(&metadata, Ref(output)))
+        .WillOnce(DoAll(SetArgReferee<1>(&metadata), Return(status)));
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.registerMem(desc, memory, output), status);
@@ -226,7 +215,6 @@ TEST_F(ForwardingEngineTest, PreservesRegistrationMetadataAndConnectionResults) 
 TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
     const auto status = NIXL_IN_PROG;
     auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
     const nixl_xfer_op_t operation = NIXL_WRITE;
     const nixl_meta_dlist_t local(DRAM_SEG);
     const nixl_meta_dlist_t remote(VRAM_SEG);
@@ -239,22 +227,16 @@ TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
     nixlBackendReqH prepared;
     nixlBackendReqH posted;
     nixlBackendReqH *handle = nullptr;
-    EXPECT_CALL(*mock,
-                prepXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), Ref(handle), &args))
-        .WillOnce([&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *) {
-            EXPECT_EQ(out, nullptr);
-            out = &prepared;
-            return status;
-        });
-    EXPECT_CALL(*mock,
-                postXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), Ref(handle), &args))
-        .WillOnce([&](const auto &, const auto &, const auto &, const auto &, auto &out, auto *) {
-            EXPECT_EQ(out, &prepared);
-            out = &posted;
-            return status;
-        });
-    EXPECT_CALL(*mock, checkXfer(&posted)).WillOnce(Return(status));
-    EXPECT_CALL(*mock, releaseReqH(&posted)).WillOnce(Return(status));
+    const auto emptyHandle = AllOf(Ref(handle), Eq(nullptr));
+    const auto preparedHandle = AllOf(Ref(handle), Eq(&prepared));
+    EXPECT_CALL(*engine,
+                prepXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), emptyHandle, &args))
+        .WillOnce(DoAll(SetArgReferee<4>(&prepared), Return(status)));
+    EXPECT_CALL(*engine,
+                postXfer(Ref(operation), Ref(local), Ref(remote), Ref(peer), preparedHandle, &args))
+        .WillOnce(DoAll(SetArgReferee<4>(&posted), Return(status)));
+    EXPECT_CALL(*engine, checkXfer(&posted)).WillOnce(Return(status));
+    EXPECT_CALL(*engine, releaseReqH(&posted)).WillOnce(Return(status));
     ForwardingEngine wrapper(&params, std::move(engine));
     const nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.prepXfer(operation, local, remote, peer, handle, &args), status);
@@ -268,7 +250,6 @@ TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
 TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
     const auto status = NIXL_SUCCESS;
     auto engine = makeEngine();
-    auto *mock = static_cast<Mock *>(engine.get());
     const nixl_meta_dlist_t local(DRAM_SEG);
     const nixl_remote_meta_dlist_t remote(DRAM_SEG);
     const nixl_reg_dlist_t registration(DRAM_SEG);
@@ -286,33 +267,24 @@ TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
     nixl_cost_t method = nixl_cost_t::ANALYTICAL_BACKEND;
     nixl_opt_args_t costArgs;
     EXPECT_CALL(
-        *mock,
+        *engine,
         prepMemView(testing::Matcher<const nixl_meta_dlist_t &>(Ref(local)), Ref(view), &args))
-        .WillOnce([&](const nixl_meta_dlist_t &, auto &out, auto *) {
-            out = &localView;
-            return status;
-        });
-    EXPECT_CALL(*mock,
+        .WillOnce(DoAll(SetArgReferee<1>(&localView), Return(status)));
+    EXPECT_CALL(*engine,
                 prepMemView(testing::Matcher<const nixl_remote_meta_dlist_t &>(Ref(remote)),
                             Ref(view),
                             &args))
-        .WillOnce([&](const nixl_remote_meta_dlist_t &, auto &out, auto *) {
-            out = &remoteView;
-            return status;
-        });
-    EXPECT_CALL(*mock, releaseMemView(&localView));
-    EXPECT_CALL(*mock, releaseMemView(&remoteView));
-    EXPECT_CALL(*mock, getNotifs(Ref(notifications))).WillOnce([&](auto &out) {
-        out.emplace_back(peer, message);
-        return status;
-    });
-    EXPECT_CALL(*mock, genNotif(Ref(peer), Ref(message))).WillOnce(Return(status));
-    EXPECT_CALL(*mock, queryMem(Ref(registration), Ref(responses)))
-        .WillOnce([&](const auto &, auto &out) {
-            out.emplace_back(nixl_b_params_t{{"size", "4096"}});
-            return status;
-        });
-    EXPECT_CALL(*mock,
+        .WillOnce(DoAll(SetArgReferee<1>(&remoteView), Return(status)));
+    EXPECT_CALL(*engine, releaseMemView(&localView));
+    EXPECT_CALL(*engine, releaseMemView(&remoteView));
+    EXPECT_CALL(*engine, getNotifs(Ref(notifications)))
+        .WillOnce(DoAll(SetArgReferee<0>(notif_list_t{{peer, message}}), Return(status)));
+    EXPECT_CALL(*engine, genNotif(Ref(peer), Ref(message))).WillOnce(Return(status));
+    EXPECT_CALL(*engine, queryMem(Ref(registration), Ref(responses)))
+        .WillOnce(DoAll(
+            SetArgReferee<1>(std::vector<nixl_query_resp_t>{nixl_b_params_t{{"size", "4096"}}}),
+            Return(status)));
+    EXPECT_CALL(*engine,
                 estimateXferCost(Ref(operation),
                                  Ref(local),
                                  Ref(remoteTransfer),
@@ -322,20 +294,10 @@ TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
                                  Ref(margin),
                                  Ref(method),
                                  &costArgs))
-        .WillOnce([&](const auto &,
-                      const auto &,
-                      const auto &,
-                      const auto &,
-                      auto &,
-                      auto &outDuration,
-                      auto &outMargin,
-                      auto &outMethod,
-                      auto *) {
-            outDuration = std::chrono::microseconds{123};
-            outMargin = std::chrono::microseconds{7};
-            outMethod = nixl_cost_t::ANALYTICAL_BACKEND;
-            return status;
-        });
+        .WillOnce(DoAll(SetArgReferee<5>(std::chrono::microseconds{123}),
+                        SetArgReferee<6>(std::chrono::microseconds{7}),
+                        SetArgReferee<7>(nixl_cost_t::ANALYTICAL_BACKEND),
+                        Return(status)));
     ForwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.prepMemView(local, view, &args), status);
