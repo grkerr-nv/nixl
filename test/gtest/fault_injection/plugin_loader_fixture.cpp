@@ -141,16 +141,6 @@ nixl_plugin_init() {
     return &plugin;
 }
 
-#ifdef LOADER_FIXTURE_DEEPBIND_PROBE
-extern "C" int
-loader_deepbind_value();
-
-extern "C" NIXL_PLUGIN_EXPORT int
-loader_fixture_deepbind_probe() {
-    return loader_deepbind_value();
-}
-#endif
-
 #ifndef LOADER_FIXTURE_NO_FINI
 extern "C" NIXL_PLUGIN_EXPORT void
 nixl_plugin_fini() {

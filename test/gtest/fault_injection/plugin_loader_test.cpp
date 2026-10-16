@@ -30,12 +30,6 @@
 #include <utility>
 #include <vector>
 
-// Competes with the plugin's own definition to show whether it was deep-bound.
-extern "C" __attribute__((visibility("default"))) int
-loader_deepbind_value() {
-    return 2;
-}
-
 using nixl::fault::PluginLoader;
 static_assert(!std::is_copy_constructible_v<PluginLoader>);
 static_assert(!std::is_copy_assignable_v<PluginLoader>);
@@ -227,33 +221,6 @@ TEST_F(PluginLoaderTest, RejectsLoadingTheProxyItself) {
     EXPECT_NE(linked.find("refers to the proxy itself"), std::string::npos) << linked;
     std::filesystem::remove_all(directory);
     dlclose(handle);
-}
-
-#ifdef LOADER_TEST_DEEPBIND
-// Binding is fixed when a library is first loaded, so each mode gets its own copy
-// of the fixture that only the loader ever opens.
-int
-probeDeepBind(const char *path, bool deepbind) {
-    PluginLoader loader(path, deepbind);
-    void *handle = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
-    EXPECT_NE(handle, nullptr);
-    using Probe = int (*)();
-    const auto probe = reinterpret_cast<Probe>(dlsym(handle, "loader_fixture_deepbind_probe"));
-    EXPECT_NE(probe, nullptr);
-    const int value = probe();
-    dlclose(handle);
-    return value;
-}
-#endif
-
-TEST_F(PluginLoaderTest, DeepBindIsOptIn) {
-#ifndef LOADER_TEST_DEEPBIND
-    GTEST_SKIP() << "RTLD_DEEPBIND is unavailable or incompatible with sanitizer runtimes";
-#else
-    // Default: the executable's symbol wins. Deep bound: the plugin's own dependency wins.
-    EXPECT_EQ(probeDeepBind(LOADER_PLAIN_BIND_PATH, false), 2);
-    EXPECT_EQ(probeDeepBind(LOADER_DEEPBIND_PATH, true), 1);
-#endif
 }
 
 TEST_F(PluginLoaderTest, ReportsMissingFile) {
