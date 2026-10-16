@@ -85,6 +85,7 @@ meson test -C build --no-rebuild forwarding_engine --print-errorlogs
 The dedicated target needs no GPUs, network peers, or inference framework. Tests
 exercise every current virtual method through a base-class reference, checking
 call counts, argument identity, statuses, output parameters, opaque handles,
-initialization state, and destruction. Status tests cover success, in-progress,
-and all twelve errors. Add tests and overrides when the backend interface grows;
-new pure virtual methods and changed overridden signatures also fail compilation.
+initialization state, and destruction. Status tests cover representative success,
+in-progress, and error results. Add tests and overrides when the backend interface
+grows; new pure virtual methods and changed overridden signatures also fail
+compilation.
