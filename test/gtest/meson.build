@@ -49,6 +49,7 @@ if sanitizer_opts.contains('thread')
     sanitizer_env.set('TSAN_OPTIONS', 'halt_on_error=1:suppressions=' + sanitizer_supp_dir / 'tsan.supp')
 endif
 
+subdir('fault_injection')
 subdir('mocks')
 subdir('plugins')
 
