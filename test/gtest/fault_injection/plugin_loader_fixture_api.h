@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// Shared failure modes and lifecycle events for the loader tests and fixture plugin.
+
 #ifndef NIXL_TEST_PLUGIN_LOADER_FIXTURE_API_H
 #define NIXL_TEST_PLUGIN_LOADER_FIXTURE_API_H
 
