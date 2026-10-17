@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// Fixture plugin: simulate loading/creation failures and record engine cleanup and finalization.
+
 #include "plugin_loader_fixture_api.h"
 #include "backend/backend_plugin.h"
 #include "../mocks/gmock_engine.h"
