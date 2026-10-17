@@ -33,25 +33,11 @@ loader_fixture_no_fini = shared_library('loader_fixture_no_fini',
     dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
     link_with: loader_fixture_mocks)
 
-loader_fixture_missing_init = shared_library('loader_fixture_missing_init',
-    'plugin_loader_missing_init.cpp')
-
-# Embeds the loader so it can be pointed at the shared object that contains it.
-# Hidden visibility keeps the embedded loader's symbols local to this library.
-loader_self_load = shared_library('loader_self_load',
-    ['plugin_loader_self_load.cpp', '../../../src/plugins/fault_injection/plugin_loader.cpp'],
-    include_directories: [nixl_inc_dirs, utils_inc_dirs,
-                         include_directories('../../../src/plugins/fault_injection')],
-    gnu_symbol_visibility: 'hidden',
-    dependencies: [nixl_infra, nixl_common_dep, dl_dep])
-
 plugin_loader_test = executable('plugin_loader_test',
     ['plugin_loader_test.cpp', '../../../src/plugins/fault_injection/plugin_loader.cpp'],
     cpp_args: [
         '-DLOADER_FIXTURE_PATH="' + loader_fixture.full_path() + '"',
         '-DLOADER_NO_FINI_PATH="' + loader_fixture_no_fini.full_path() + '"',
-        '-DLOADER_MISSING_INIT_PATH="' + loader_fixture_missing_init.full_path() + '"',
-        '-DLOADER_SELF_LOAD_PATH="' + loader_self_load.full_path() + '"',
     ],
     include_directories: [nixl_inc_dirs, utils_inc_dirs,
                          include_directories('../../../src/plugins/fault_injection')],
@@ -59,6 +45,5 @@ plugin_loader_test = executable('plugin_loader_test',
                    dependency('gtest', version: '>=1.11.0', main: true)])
 
 test('plugin_loader', plugin_loader_test,
-     depends: [loader_fixture, loader_fixture_no_fini, loader_fixture_missing_init,
-                loader_self_load],
+     depends: [loader_fixture, loader_fixture_no_fini],
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
