@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// Verify plugin validation, metadata, engine creation, and lifetime/cleanup ordering.
+
 #include "plugin_loader.h"
 #include "plugin_loader_fixture_api.h"
 
