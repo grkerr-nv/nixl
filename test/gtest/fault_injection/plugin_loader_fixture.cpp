@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-// Fixture plugin: simulate loading/creation failures and record engine cleanup and finalization.
+// Fake plugin for unit tests to configure behavior and observe lifecycle events.
 
 #include "plugin_loader_fixture_api.h"
 #include "backend/backend_plugin.h"
