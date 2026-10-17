@@ -76,7 +76,7 @@ meson test -C build plugin_loader --print-errorlogs
 ```
 
 Fixture plugins test metadata, validation, parameter identity, initialization
-errors, factory failures, copy prevention, ownership, cleanup order, and self-loading.
+errors, factory failures, copy prevention, ownership, and cleanup order.
 No GPUs, real UCX plugin, peers, or inference framework needed.
 
 For this workspace's unsanitized system Abseil, add

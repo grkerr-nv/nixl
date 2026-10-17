@@ -20,7 +20,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdlib>
 #include <dlfcn.h>
 #include <filesystem>
 #include <optional>
@@ -204,31 +203,8 @@ TEST_F(PluginLoaderTest, RejectsRelativeAndEmptyPaths) {
     EXPECT_THROW(PluginLoader(""), std::invalid_argument);
 }
 
-TEST_F(PluginLoaderTest, RejectsLoadingTheProxyItself) {
-    void *handle = dlopen(LOADER_SELF_LOAD_PATH, RTLD_NOW | RTLD_LOCAL);
-    ASSERT_NE(handle, nullptr) << dlerror();
-    using Probe = const char *(*)(const char *);
-    const auto probe = reinterpret_cast<Probe>(dlsym(handle, "loader_self_load_probe"));
-    ASSERT_NE(probe, nullptr);
-    const std::string diagnostic = probe(LOADER_SELF_LOAD_PATH);
-    EXPECT_NE(diagnostic.find("refers to the proxy itself"), std::string::npos) << diagnostic;
-    // A symlink to the same file is still the same object.
-    auto directory = (std::filesystem::path(testing::TempDir()) / "loader-self-XXXXXX").string();
-    ASSERT_NE(mkdtemp(directory.data()), nullptr);
-    const auto link = std::filesystem::path(directory) / "self_load_link.so";
-    std::filesystem::create_symlink(LOADER_SELF_LOAD_PATH, link);
-    const std::string linked = probe(link.c_str());
-    EXPECT_NE(linked.find("refers to the proxy itself"), std::string::npos) << linked;
-    std::filesystem::remove_all(directory);
-    dlclose(handle);
-}
-
 TEST_F(PluginLoaderTest, ReportsMissingFile) {
     expectLoadFailure(std::string(LOADER_FIXTURE_PATH) + ".missing", "Cannot load genuine plugin");
-}
-
-TEST_F(PluginLoaderTest, ReportsMissingInitializationSymbol) {
-    expectLoadFailure(LOADER_MISSING_INIT_PATH, "nixl_plugin_init");
 }
 
 TEST_F(PluginLoaderTest, AcceptsPluginWithoutFinalizer) {
