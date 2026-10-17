@@ -48,11 +48,12 @@ enum class Mode {
 enum class Event { Init, Create, DestroyCallback, EngineDestroyed, Finalize };
 
 struct Observer {
-    void *context = nullptr;
+    void *context = nullptr; // Pass test state to the callback without exposing its type.
     void (*record)(void *, Event, const nixlBackendInitParams *) = nullptr;
 };
 
-using Configure = void (*)(Mode, Observer);
+using ConfigureFunction = void(Mode, Observer);
+using Configure = ConfigureFunction *;
 
 } // namespace loader_fixture
 
