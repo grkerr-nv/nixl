@@ -44,9 +44,9 @@ A null parameter map is valid; a null `params` pointer is rejected.
 from the genuine plugin. Keep the loader alive while using those pointers;
 copy them into `std::string` if ownership is needed.
 
-The shared `nixl::fault::engine_ptr_t` in `engine_ptr.h` passes directly into
-`forwardingEngine`. Include `forwarding_engine.h` when using the wrapper;
-`plugin_loader.h` includes only the engine ownership header.
+`pluginLoader::engine_ptr_t` aliases the common `nixl::fault::engine_ptr_t` from
+`engine_ptr.h`, also used by `forwardingEngine`. Include `forwarding_engine.h`
+when using the wrapper; `plugin_loader.h` includes only the engine ownership header.
 The pointer calls the plugin's `destroy_engine` callback and retains library
 ownership, so engines can outlive the loader. Resetting the pointer destroys the
 engine; its deleter retains ownership until the pointer itself is destroyed.
