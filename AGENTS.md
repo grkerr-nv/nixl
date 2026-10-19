@@ -131,25 +131,6 @@ Remove local substitutes when upstream now provides the same functionality.
   applicable format/lint checks. If a tool is unavailable, inspect the relevant
   rules manually and report the missing check; do not silently skip conventions.
 
-## Test scope and CI cost
-
-- When using Ponytail or generating tests, prioritize focused coverage that a
-  reviewer can understand quickly. Test volume is not a goal.
-- Reuse existing fixtures and helpers. Add the smallest set of cases that proves
-  the behavior, catches the relevant regression, and protects distinct failure
-  and cleanup paths.
-- Avoid exhaustive combinations or testing every status against every method
-  when representative cases exercise the same forwarding logic. Expand coverage
-  when cases have different behavior or a specific requirement demands it.
-- Keep lifecycle, error-handling, and safety checks that catch distinct bugs;
-  remove redundant cases and assertions that merely repeat the implementation.
-- Consider total CI cost: fixture compilation, shared libraries, dependencies,
-  sanitizer builds, and test execution. Prefer extending existing test targets
-  and fixtures over adding parallel infrastructure when it fits.
-- Run focused checks during development. Before broad or repeated runs, identify
-  what additional risk they cover. Explain unusually large test additions or
-  expensive checks in the PR description.
-
 ## Communication style
 
 - Use Caveman for concise progress updates, code and review comments, commit
