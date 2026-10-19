@@ -50,9 +50,17 @@ if sanitizer_opts.contains('thread')
 endif
 
 # The forwarding engine needs only descriptors and mocks, not a live backend.
+forwarding_interface_check = custom_target('check_forwarding_engine_interface',
+    input: ['../../src/api/cpp/backend/backend_engine.h',
+            '../../src/plugins/fault_injection/forwarding_engine.h'],
+    output: 'forwarding_engine_interface.txt',
+    command: [find_program('python3'), files('check_forwarding_interface.py'), '@INPUT@'],
+    capture: true)
+
 forwarding_test = executable('forwarding_engine_test',
     ['forwarding_engine.cpp', 'mocks/gmock_engine.cpp'],
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    link_depends: forwarding_interface_check,
     dependencies: [nixl_infra, nixl_common_dep, gmock_dep,
                    dependency('gtest', version: '>=1.11.0', main: true)])
 test('forwarding_engine', forwarding_test,
