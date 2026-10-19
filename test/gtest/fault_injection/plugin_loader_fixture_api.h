@@ -17,43 +17,43 @@
 
 // Shared failure modes and lifecycle events for the loader tests and fixture plugin.
 
-#ifndef NIXL_TEST_PLUGIN_LOADER_FIXTURE_API_H
-#define NIXL_TEST_PLUGIN_LOADER_FIXTURE_API_H
+#ifndef NIXL_TEST_GTEST_FAULT_INJECTION_PLUGIN_LOADER_FIXTURE_API_H
+#define NIXL_TEST_GTEST_FAULT_INJECTION_PLUGIN_LOADER_FIXTURE_API_H
 
 #include "backend/backend_aux.h"
 
 namespace loader_fixture {
 
-enum class Mode {
-    Valid,
-    NullInit,
-    ThrowInit,
-    OldApi,
-    NoCreate,
-    NoDestroy,
-    NoNameCallback,
-    NoVersionCallback,
-    NullName,
-    EmptyName,
-    NullVersion,
-    EmptyVersion,
-    NoOptions,
-    NoMems,
-    NoOptional,
-    NullEngine,
-    ThrowCreate,
-    EngineInitError,
+enum class fixture_mode_t {
+    VALID,
+    NULL_INIT,
+    THROW_INIT,
+    OLD_API,
+    NO_CREATE,
+    NO_DESTROY,
+    NO_NAME_CALLBACK,
+    NO_VERSION_CALLBACK,
+    NULL_NAME,
+    EMPTY_NAME,
+    NULL_VERSION,
+    EMPTY_VERSION,
+    NO_OPTIONS,
+    NO_MEMS,
+    NO_OPTIONAL,
+    NULL_ENGINE,
+    THROW_CREATE,
+    ENGINE_INIT_ERROR,
 };
 
-enum class Event { Init, Create, DestroyCallback, EngineDestroyed, Finalize };
+enum class fixture_event_t { INIT, CREATE, DESTROY_CALLBACK, ENGINE_DESTROYED, FINALIZE };
 
-struct Observer {
+struct observer {
     void *context = nullptr; // Pass test state to the callback without exposing its type.
-    void (*record)(void *, Event, const nixlBackendInitParams *) = nullptr;
+    void (*record)(void *, fixture_event_t, const nixlBackendInitParams *) = nullptr;
 };
 
-using ConfigureFunction = void(Mode, Observer);
-using Configure = ConfigureFunction *;
+using configure_function_t = void(fixture_mode_t, observer);
+using configure_t = configure_function_t *;
 
 } // namespace loader_fixture
 
