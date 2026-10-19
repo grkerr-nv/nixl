@@ -17,14 +17,14 @@ limitations under the License.
 
 # Genuine backend plugin loader
 
-`PluginLoader` loads a genuine backend by absolute path for the future fault proxy.
+`pluginLoader` loads a genuine backend by absolute path for the future fault proxy.
 It exposes plugin metadata and creates engines; it does not register a proxy or
 perform name-based discovery.
 
 ## Use and ownership
 
 ```cpp
-nixl::fault::PluginLoader plugin("/opt/nixl/real/libplugin_UCX.so");
+nixl::fault::pluginLoader plugin("/opt/nixl/real/libplugin_UCX.so");
 auto engine = plugin.createEngine(&params);
 ```
 
@@ -32,7 +32,7 @@ The loader is noncopyable. It passes `params` unchanged and preserves the engine
 initialization-error flag; callers must check `getInitErr()`. A null parameter map
 is valid; a null `params` pointer is rejected.
 
-`EnginePtr` calls the plugin's `destroy_engine` callback and retains library
+`engine_ptr_t` calls the plugin's `destroy_engine` callback and retains library
 ownership, so engines can outlive the loader. Resetting the pointer destroys the
 engine; its deleter retains ownership until the pointer itself is destroyed.
 The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Destroy and
