@@ -105,8 +105,11 @@ transfers exclusive engine ownership with its original deleter. Pass
 `engine_ptr_t` owns the engine. Supply the genuine plugin's `destroy_engine` callback
 through `engineDeleter`, along with `plugin_owner`, a shared owner that finalizes
 and unloads the plugin. The deleter retains that owner until engine cleanup has
-finished. Its default uses `delete` for directly allocated engines, including
-mocks. Cleanup runs once, including when wrapper construction fails.
+finished. `engineDeleter` has no default constructor, so every engine pointer names
+how its engine dies; directly allocated engines, including mocks, use
+`engineDeleter::forOwnedEngine()`, which calls `delete` and holds no plugin owner.
+Never adopt a plugin engine with it. Cleanup runs once, including when wrapper
+construction fails.
 
 Null initialization parameters, a null engine, missing plugin ownership or destroy
 callback, and conflicting backend types or parameter values throw
