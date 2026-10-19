@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#ifndef NIXL_FAULT_INJECTION_PLUGIN_LOADER_H
-#define NIXL_FAULT_INJECTION_PLUGIN_LOADER_H
+#ifndef NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
+#define NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
 
 #include "backend/backend_engine.h"
 
@@ -27,32 +27,32 @@
 namespace nixl::fault {
 
 // Loads a genuine backend by path, independently of NIXL's name-based discovery.
-class PluginLoader {
-    struct State;
+class pluginLoader {
+    struct pluginState;
 
 public:
-    class EngineDeleter {
+    class engineDeleter {
     public:
         void
         operator()(nixlBackendEngine *engine) const noexcept;
 
     private:
-        friend class PluginLoader;
-        explicit EngineDeleter(std::shared_ptr<State> state);
+        friend class pluginLoader;
+        explicit engineDeleter(std::shared_ptr<pluginState> state);
 
         // Keep callbacks and backend code alive until the owning pointer is destroyed.
-        std::shared_ptr<State> state_;
+        std::shared_ptr<pluginState> state_;
     };
 
-    using EnginePtr = std::unique_ptr<nixlBackendEngine, EngineDeleter>;
+    using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
 
     // Throws for relative paths, loading errors, or an invalid plugin interface.
     // deepbind adds RTLD_DEEPBIND, as core does for UCX when NIXL_UCX_DEEPBIND is set.
-    explicit PluginLoader(const std::filesystem::path &path, bool deepbind = false);
+    explicit pluginLoader(const std::filesystem::path &path, bool deepbind = false);
 
-    PluginLoader(const PluginLoader &) = delete;
-    PluginLoader &
-    operator=(const PluginLoader &) = delete;
+    pluginLoader(const pluginLoader &) = delete;
+    pluginLoader &
+    operator=(const pluginLoader &) = delete;
 
     std::string
     getName() const;
@@ -65,12 +65,12 @@ public:
 
     // Pass params unchanged. Throws if params is null or engine creation fails.
     // Engines may outlive this loader; do not release them from their owning pointer.
-    EnginePtr
+    engine_ptr_t
     createEngine(const nixlBackendInitParams *params) const;
 
 private:
     // Shared by this loader and engine deleters. Finalize only after the last owner.
-    std::shared_ptr<State> state_;
+    std::shared_ptr<pluginState> state_;
 };
 
 } // namespace nixl::fault
