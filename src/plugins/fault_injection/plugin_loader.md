@@ -116,5 +116,6 @@ For this workspace's unsanitized system Abseil, add
 `NDEBUG_SANITIZER` disables extra Abseil generation metadata to preserve its
 hash-table ABI; ASan and UBSan remain enabled.
 
-Proxy installation, UCX binding-policy selection, TOML, and fault injection
-remain separate work.
+The [inert proxy](README.md) provides forwarder integration, isolated installation,
+UCX binding-policy selection, and TOML configuration. Fault injection remains
+separate work.

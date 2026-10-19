@@ -61,7 +61,11 @@ create(const nixlBackendInitParams *params) {
     if (mode == fixture_mode_t::THROW_CREATE) {
         throw std::runtime_error("fixture create failed");
     }
-    return new testing::NiceMock<fixtureEngine>(params);
+    auto *engine = new testing::NiceMock<fixtureEngine>(params);
+    if (observer.engineCreated) {
+        observer.engineCreated(observer.context, engine);
+    }
+    return engine;
 }
 
 void
