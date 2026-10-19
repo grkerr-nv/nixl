@@ -25,14 +25,18 @@
 
 namespace nixl::fault {
 
-// The plugin must stay loaded until its destroy callback has run.
-class EngineDeleter {
+// Plugin ownership keeps its callbacks valid through engine destruction.
+class engineDeleter {
 public:
-    using Destroy = void (*)(nixlBackendEngine *);
+    using destroy_t = void (*)(nixlBackendEngine *);
 
-    explicit EngineDeleter(Destroy destroy = deleteEngine) : destroy_(destroy) {
-        if (!destroy_) {
-            throw std::invalid_argument("A backend destroy callback is required");
+    engineDeleter() = default;
+
+    engineDeleter(destroy_t destroy, std::shared_ptr<void> plugin_owner)
+        : destroy_(destroy),
+          pluginOwner_(std::move(plugin_owner)) {
+        if (!destroy_ || !pluginOwner_) {
+            throw std::invalid_argument("A plugin destroy callback and shared owner are required");
         }
     }
 
@@ -48,19 +52,20 @@ private:
         delete engine;
     }
 
-    // Cleanup callback only; the caller must keep its plugin loaded.
-    Destroy destroy_;
+    destroy_t destroy_ = deleteEngine;
+    // Released after unique_ptr invokes the callback; the owner finalizes/unloads the plugin.
+    std::shared_ptr<void> pluginOwner_;
 };
 
-using EnginePtr = std::unique_ptr<nixlBackendEngine, EngineDeleter>;
+using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
 
 // Owns an initialized engine; opaque handles remain owned by that engine.
 // Base-class getters expose a snapshot of initialization state. The nonvirtual
 // telemetry getter reads this wrapper's own queue, which stays empty; core does
 // not currently drain backend telemetry queues, so no events are lost.
-class ForwardingEngine : public nixlBackendEngine {
+class forwardingEngine : public nixlBackendEngine {
 public:
-    ForwardingEngine(const nixlBackendInitParams *params, EnginePtr engine)
+    forwardingEngine(const nixlBackendInitParams *params, engine_ptr_t engine)
         : nixlBackendEngine(validateParams(params)),
           engine_(std::move(engine)) {
         if (!engine_) {
@@ -71,13 +76,13 @@ public:
                 "Wrapped backend type does not match initialization parameters");
         }
         initErr = engine_->getInitErr();
-        // Adopt parameters the genuine engine added; existing keys must then match.
+        // Adopt engine-discovered keys, preserve caller-only keys, and reject conflicts.
         for (const auto &[key, value] : engine_->getCustomParams()) {
             static_cast<void>(setInitParam(key, value));
-        }
-        if (getCustomParams() != engine_->getCustomParams()) {
-            throw std::invalid_argument(
-                "Wrapped backend parameters do not match initialization parameters");
+            if (getCustomParams().at(key) != value) {
+                throw std::invalid_argument(
+                    "Wrapped backend parameters do not match initialization parameters");
+            }
         }
     }
 
@@ -249,7 +254,7 @@ private:
     }
 
     // Own the genuine engine and invoke its deleter on destruction or constructor failure.
-    EnginePtr engine_;
+    engine_ptr_t engine_;
 };
 
 } // namespace nixl::fault
