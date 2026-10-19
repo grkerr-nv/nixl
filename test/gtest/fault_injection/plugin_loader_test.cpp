@@ -31,25 +31,25 @@
 #include <utility>
 #include <vector>
 
-using nixl::fault::PluginLoader;
-static_assert(!std::is_copy_constructible_v<PluginLoader>);
-static_assert(!std::is_copy_assignable_v<PluginLoader>);
-using loader_fixture::Mode;
-using loader_fixture::Event;
+using nixl::fault::pluginLoader;
+static_assert(!std::is_copy_constructible_v<pluginLoader>);
+static_assert(!std::is_copy_assignable_v<pluginLoader>);
+using loader_fixture::fixture_mode_t;
+using loader_fixture::fixture_event_t;
 
 namespace {
 
 // Observe logical init/fini and engine cleanup without relying on physical dlclose
 // unloading: core's RTLD_NODELETE workaround deliberately keeps code resident.
-class Fixture {
+class fixturePlugin {
 public:
-    explicit Fixture(const char *path = LOADER_FIXTURE_PATH) {
+    explicit fixturePlugin(const char *path = LOADER_FIXTURE_PATH) {
         handle_ = dlopen(path, RTLD_NOW | RTLD_LOCAL);
         if (!handle_) {
             throw std::runtime_error(dlerror());
         }
-        configure_ =
-            reinterpret_cast<loader_fixture::Configure>(dlsym(handle_, "loader_fixture_configure"));
+        configure_ = reinterpret_cast<loader_fixture::configure_t>(
+            dlsym(handle_, "loader_fixture_configure"));
         if (!configure_) {
             dlclose(handle_);
             throw std::runtime_error("Missing fixture configuration function");
@@ -57,35 +57,36 @@ public:
         configure();
     }
 
-    ~Fixture() {
-        configure_(Mode::Valid, {});
+    ~fixturePlugin() {
+        configure_(fixture_mode_t::VALID, {});
         dlclose(handle_);
     }
 
-    Fixture(const Fixture &) = delete;
-    Fixture &
-    operator=(const Fixture &) = delete;
+    fixturePlugin(const fixturePlugin &) = delete;
+    fixturePlugin &
+    operator=(const fixturePlugin &) = delete;
 
     void
-    configure(Mode mode = Mode::Valid) {
+    configure(fixture_mode_t mode = fixture_mode_t::VALID) {
         events.clear();
         createParams.clear();
-        configure_(mode,
-                   {this, [](void *context, Event event, const nixlBackendInitParams *params) {
-                        auto &fixture = *static_cast<Fixture *>(context);
-                        fixture.events.push_back(event);
-                        if (event == Event::Create) {
-                            fixture.createParams.push_back(params);
-                        }
-                    }});
+        configure_(
+            mode,
+            {this, [](void *context, fixture_event_t event, const nixlBackendInitParams *params) {
+                 auto &fixture = *static_cast<fixturePlugin *>(context);
+                 fixture.events.push_back(event);
+                 if (event == fixture_event_t::CREATE) {
+                     fixture.createParams.push_back(params);
+                 }
+             }});
     }
 
-    std::vector<Event> events;
+    std::vector<fixture_event_t> events;
     std::vector<const nixlBackendInitParams *> createParams;
 
 private:
     void *handle_;
-    loader_fixture::Configure configure_;
+    loader_fixture::configure_t configure_;
 };
 
 class PluginLoaderTest : public testing::Test {
@@ -103,7 +104,7 @@ protected:
 void
 expectLoadFailure(const std::filesystem::path &path, const char *message) {
     try {
-        PluginLoader loader(path);
+        pluginLoader loader(path);
         FAIL() << "Expected plugin loading to fail";
     }
     catch (const std::runtime_error &error) {
@@ -114,22 +115,23 @@ expectLoadFailure(const std::filesystem::path &path, const char *message) {
 }
 
 TEST_F(PluginLoaderTest, ReportsPluginMetadataAndFinalizesOnce) {
-    Fixture fixture;
+    fixturePlugin fixture;
     {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
+        pluginLoader loader(LOADER_FIXTURE_PATH);
         EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
         EXPECT_EQ(loader.getVersion(), "1.2.3");
         EXPECT_EQ(loader.getBackendOptions(), (nixl_b_params_t{{"transport", "fixture"}}));
         EXPECT_EQ(loader.getBackendMems(), (nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
-        EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init}));
+        EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
     }
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init, Event::Finalize}));
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
 }
 
 TEST_F(PluginLoaderTest, PassesOriginalParametersAndUsesPluginDestroyCallback) {
-    Fixture fixture;
+    fixturePlugin fixture;
     {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
+        pluginLoader loader(LOADER_FIXTURE_PATH);
         {
             auto engine = loader.createEngine(&params);
             ASSERT_EQ(fixture.createParams.size(), 1U);
@@ -139,46 +141,50 @@ TEST_F(PluginLoaderTest, PassesOriginalParametersAndUsesPluginDestroyCallback) {
             EXPECT_FALSE(engine->getInitErr());
         }
         EXPECT_EQ(fixture.events,
-                  (std::vector<Event>{
-                      Event::Init, Event::Create, Event::DestroyCallback, Event::EngineDestroyed}));
+                  (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                                fixture_event_t::CREATE,
+                                                fixture_event_t::DESTROY_CALLBACK,
+                                                fixture_event_t::ENGINE_DESTROYED}));
     }
-    EXPECT_EQ(fixture.events.back(), Event::Finalize);
+    EXPECT_EQ(fixture.events.back(), fixture_event_t::FINALIZE);
     EXPECT_EQ(fixture.events.size(), 5U);
 }
 
 TEST_F(PluginLoaderTest, DefersFinalizationUntilLastEngineOwnerIsDestroyed) {
-    Fixture fixture;
-    std::optional<PluginLoader::EnginePtr> first;
-    std::optional<PluginLoader::EnginePtr> second;
+    fixturePlugin fixture;
+    std::optional<pluginLoader::engine_ptr_t> first;
+    std::optional<pluginLoader::engine_ptr_t> second;
     {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
+        pluginLoader loader(LOADER_FIXTURE_PATH);
         first.emplace(loader.createEngine(&params));
         second.emplace(loader.createEngine(&params));
     }
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init, Event::Create, Event::Create}));
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{
+                  fixture_event_t::INIT, fixture_event_t::CREATE, fixture_event_t::CREATE}));
     first.reset();
     EXPECT_TRUE((*second)->supportsLocal());
     EXPECT_EQ(fixture.events,
-              (std::vector<Event>{Event::Init,
-                                  Event::Create,
-                                  Event::Create,
-                                  Event::DestroyCallback,
-                                  Event::EngineDestroyed}));
+              (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED}));
     second.reset();
     EXPECT_EQ(fixture.events,
-              (std::vector<Event>{Event::Init,
-                                  Event::Create,
-                                  Event::Create,
-                                  Event::DestroyCallback,
-                                  Event::EngineDestroyed,
-                                  Event::DestroyCallback,
-                                  Event::EngineDestroyed,
-                                  Event::Finalize}));
+              (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::FINALIZE}));
 }
 
 TEST_F(PluginLoaderTest, AcceptsNullParameterMap) {
-    Fixture fixture;
-    PluginLoader loader(LOADER_FIXTURE_PATH);
+    fixturePlugin fixture;
+    pluginLoader loader(LOADER_FIXTURE_PATH);
     params.customParams = nullptr;
     auto engine = loader.createEngine(&params);
     EXPECT_TRUE(engine->getCustomParams().empty());
@@ -186,23 +192,23 @@ TEST_F(PluginLoaderTest, AcceptsNullParameterMap) {
 }
 
 TEST_F(PluginLoaderTest, PreservesEngineInitializationErrorForCaller) {
-    Fixture fixture;
-    fixture.configure(Mode::EngineInitError);
-    PluginLoader loader(LOADER_FIXTURE_PATH);
+    fixturePlugin fixture;
+    fixture.configure(fixture_mode_t::ENGINE_INIT_ERROR);
+    pluginLoader loader(LOADER_FIXTURE_PATH);
     auto engine = loader.createEngine(&params);
     EXPECT_TRUE(engine->getInitErr());
 }
 
 TEST_F(PluginLoaderTest, RejectsNullParametersBeforeCallingFactory) {
-    Fixture fixture;
-    PluginLoader loader(LOADER_FIXTURE_PATH);
+    fixturePlugin fixture;
+    pluginLoader loader(LOADER_FIXTURE_PATH);
     EXPECT_THROW(loader.createEngine(nullptr), std::invalid_argument);
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init}));
+    EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
 }
 
 TEST_F(PluginLoaderTest, RejectsRelativeAndEmptyPaths) {
-    EXPECT_THROW(PluginLoader("relative.so"), std::invalid_argument);
-    EXPECT_THROW(PluginLoader(""), std::invalid_argument);
+    EXPECT_THROW(pluginLoader("relative.so"), std::invalid_argument);
+    EXPECT_THROW(pluginLoader(""), std::invalid_argument);
 }
 
 TEST_F(PluginLoaderTest, ReportsMissingFile) {
@@ -210,19 +216,21 @@ TEST_F(PluginLoaderTest, ReportsMissingFile) {
 }
 
 TEST_F(PluginLoaderTest, AcceptsPluginWithoutFinalizer) {
-    Fixture fixture(LOADER_NO_FINI_PATH);
+    fixturePlugin fixture(LOADER_NO_FINI_PATH);
     {
-        PluginLoader loader(LOADER_NO_FINI_PATH);
+        pluginLoader loader(LOADER_NO_FINI_PATH);
         auto engine = loader.createEngine(&params);
         EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
     }
     EXPECT_EQ(fixture.events,
-              (std::vector<Event>{
-                  Event::Init, Event::Create, Event::DestroyCallback, Event::EngineDestroyed}));
+              (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED}));
 }
 
-struct InvalidPlugin {
-    Mode mode;
+struct invalidPlugin {
+    fixture_mode_t mode;
     const char *name;
     const char *message;
     bool finalize;
@@ -230,15 +238,16 @@ struct InvalidPlugin {
 
 // Each case corrupts one part of the exported plugin contract. Successful init
 // must be paired with fini even when validation rejects the returned interface.
-class InvalidPluginTest : public testing::TestWithParam<InvalidPlugin> {};
+class InvalidPluginTest : public testing::TestWithParam<invalidPlugin> {};
 
 TEST_P(InvalidPluginTest, ReportsFailureAndCleansUp) {
     const auto &scenario = GetParam();
-    Fixture fixture;
+    fixturePlugin fixture;
     fixture.configure(scenario.mode);
     expectLoadFailure(LOADER_FIXTURE_PATH, scenario.message);
-    const auto expected = scenario.finalize ? std::vector<Event>{Event::Init, Event::Finalize} :
-                                              std::vector<Event>{Event::Init};
+    const auto expected = scenario.finalize ?
+        std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE} :
+        std::vector<fixture_event_t>{fixture_event_t::INIT};
     EXPECT_EQ(fixture.events, expected);
 }
 
@@ -246,53 +255,72 @@ INSTANTIATE_TEST_SUITE_P(
     InvalidInterfaces,
     InvalidPluginTest,
     testing::Values(
-        InvalidPlugin{Mode::NullInit, "NullInit", "initialization failed", false},
-        InvalidPlugin{Mode::ThrowInit, "ThrowInit", "fixture init failed", false},
-        InvalidPlugin{Mode::OldApi, "OldApi", "API version mismatch", true},
-        InvalidPlugin{Mode::NoCreate, "NoCreate", "required callbacks", true},
-        InvalidPlugin{Mode::NoDestroy, "NoDestroy", "required callbacks", true},
-        InvalidPlugin{Mode::NoNameCallback, "NoNameCallback", "required callbacks", true},
-        InvalidPlugin{Mode::NoVersionCallback, "NoVersionCallback", "required callbacks", true},
-        InvalidPlugin{Mode::NullName, "NullName", "empty name or version", true},
-        InvalidPlugin{Mode::EmptyName, "EmptyName", "empty name or version", true},
-        InvalidPlugin{Mode::NullVersion, "NullVersion", "empty name or version", true},
-        InvalidPlugin{Mode::EmptyVersion, "EmptyVersion", "empty name or version", true}),
-    [](const testing::TestParamInfo<InvalidPlugin> &info) { return info.param.name; });
+        invalidPlugin{fixture_mode_t::NULL_INIT, "NullInit", "initialization failed", false},
+        invalidPlugin{fixture_mode_t::THROW_INIT, "ThrowInit", "fixture init failed", false},
+        invalidPlugin{fixture_mode_t::OLD_API, "OldApi", "API version mismatch", true},
+        invalidPlugin{fixture_mode_t::NO_CREATE, "NoCreate", "required callbacks", true},
+        invalidPlugin{fixture_mode_t::NO_DESTROY, "NoDestroy", "required callbacks", true},
+        invalidPlugin{fixture_mode_t::NO_NAME_CALLBACK,
+                      "NoNameCallback",
+                      "required callbacks",
+                      true},
+        invalidPlugin{fixture_mode_t::NO_VERSION_CALLBACK,
+                      "NoVersionCallback",
+                      "required callbacks",
+                      true},
+        invalidPlugin{fixture_mode_t::NULL_NAME, "NullName", "empty name or version", true},
+        invalidPlugin{fixture_mode_t::EMPTY_NAME, "EmptyName", "empty name or version", true},
+        invalidPlugin{fixture_mode_t::NULL_VERSION, "NullVersion", "empty name or version", true},
+        invalidPlugin{fixture_mode_t::EMPTY_VERSION,
+                      "EmptyVersion",
+                      "empty name or version",
+                      true}),
+    [](const testing::TestParamInfo<invalidPlugin> &info) { return info.param.name; });
 
-class OptionalCallbacksTest : public PluginLoaderTest, public testing::WithParamInterface<Mode> {};
+class OptionalCallbacksTest : public PluginLoaderTest,
+                              public testing::WithParamInterface<fixture_mode_t> {};
 
 TEST_P(OptionalCallbacksTest, DefaultsAbsentCallbacksToEmptyResults) {
-    Fixture fixture;
+    fixturePlugin fixture;
     fixture.configure(GetParam());
-    PluginLoader loader(LOADER_FIXTURE_PATH);
-    const auto options =
-        GetParam() == Mode::NoMems ? nixl_b_params_t{{"transport", "fixture"}} : nixl_b_params_t{};
-    const auto mems =
-        GetParam() == Mode::NoOptions ? nixl_mem_list_t{DRAM_SEG, VRAM_SEG} : nixl_mem_list_t{};
+    pluginLoader loader(LOADER_FIXTURE_PATH);
+    const auto options = GetParam() == fixture_mode_t::NO_MEMS ?
+        nixl_b_params_t{{"transport", "fixture"}} :
+        nixl_b_params_t{};
+    const auto mems = GetParam() == fixture_mode_t::NO_OPTIONS ?
+        nixl_mem_list_t{DRAM_SEG, VRAM_SEG} :
+        nixl_mem_list_t{};
     EXPECT_EQ(loader.getBackendOptions(), options);
     EXPECT_EQ(loader.getBackendMems(), mems);
 }
 
 INSTANTIATE_TEST_SUITE_P(MissingOptionalCallbacks,
                          OptionalCallbacksTest,
-                         testing::Values(Mode::NoOptions, Mode::NoMems, Mode::NoOptional));
+                         testing::Values(fixture_mode_t::NO_OPTIONS,
+                                         fixture_mode_t::NO_MEMS,
+                                         fixture_mode_t::NO_OPTIONAL));
 
-class FailedEngineTest : public PluginLoaderTest, public testing::WithParamInterface<Mode> {};
+class FailedEngineTest : public PluginLoaderTest,
+                         public testing::WithParamInterface<fixture_mode_t> {};
 
 TEST_P(FailedEngineTest, FailedFactoryLeavesPluginUsableAndFinalizesOnce) {
-    Fixture fixture;
+    fixturePlugin fixture;
     fixture.configure(GetParam());
     {
-        PluginLoader loader(LOADER_FIXTURE_PATH);
+        pluginLoader loader(LOADER_FIXTURE_PATH);
         EXPECT_THROW(loader.createEngine(&params), std::runtime_error);
         EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
-        EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init, Event::Create}));
+        EXPECT_EQ(fixture.events,
+                  (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::CREATE}));
     }
-    EXPECT_EQ(fixture.events, (std::vector<Event>{Event::Init, Event::Create, Event::Finalize}));
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{
+                  fixture_event_t::INIT, fixture_event_t::CREATE, fixture_event_t::FINALIZE}));
 }
 
 INSTANTIATE_TEST_SUITE_P(FailedFactories,
                          FailedEngineTest,
-                         testing::Values(Mode::NullEngine, Mode::ThrowCreate));
+                         testing::Values(fixture_mode_t::NULL_ENGINE,
+                                         fixture_mode_t::THROW_CREATE));
 
 } // namespace
