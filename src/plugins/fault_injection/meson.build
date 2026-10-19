@@ -18,9 +18,20 @@ plugin_loader_lib = static_library('nixl_plugin_loader',
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep],
     build_by_default: get_option('build_fault_injection'),
+    gnu_symbol_visibility: 'hidden',
     pic: true)
 
 nixl_plugin_loader_dep = declare_dependency(
     link_with: plugin_loader_lib,
     include_directories: [nixl_inc_dirs, utils_inc_dirs, include_directories('.')],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep])
+
+fault_proxy = shared_library('nixl_fault_proxy',
+    'proxy_plugin.cpp',
+    include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    dependencies: [nixl_plugin_loader_dep],
+    gnu_symbol_visibility: 'hidden',
+    build_by_default: get_option('build_fault_injection'),
+    install: get_option('build_fault_injection'),
+    install_dir: plugin_install_dir / 'fault_injection',
+    install_rpath: '$ORIGIN/../..')

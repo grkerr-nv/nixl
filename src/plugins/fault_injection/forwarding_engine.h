@@ -31,7 +31,7 @@ namespace nixl::fault {
 // not currently drain backend telemetry queues, so no events are lost.
 class forwardingEngine : public nixlBackendEngine {
 public:
-    forwardingEngine(const nixlBackendInitParams *params, engine_ptr_t engine)
+    forwardingEngine(const nixlBackendInitParams *params, std::shared_ptr<nixlBackendEngine> engine)
         : nixlBackendEngine(validateParams(params)),
           engine_(std::move(engine)) {
         if (!engine_) {
@@ -220,7 +220,7 @@ private:
     }
 
     // Own the genuine engine and invoke its deleter on destruction or constructor failure.
-    engine_ptr_t engine_;
+    std::shared_ptr<nixlBackendEngine> engine_;
 };
 
 } // namespace nixl::fault
