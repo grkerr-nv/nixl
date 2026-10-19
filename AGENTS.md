@@ -47,6 +47,9 @@ ask for its location rather than guessing the design.
 - Keep `main` free of feature commits so it can fast-forward to `upstream/main`.
 - Sync regularly and before starting new feature branches. Start with a clean
   working tree; commit or otherwise preserve local changes first.
+- Always update and push `main`, then update and push `nixl-resiliency`, before
+  rebasing feature branches. Rebase feature PRs onto published
+  `origin/nixl-resiliency`, never directly onto `main`.
 
 Configure the remote once if it is absent:
 
@@ -69,7 +72,7 @@ git push origin main
 If a fast-forward fails, inspect the divergence before proceeding. Do not reset
 or force-push shared branches to make the update succeed.
 
-Bring the update into the resiliency integration branch:
+Update and push integration before touching feature branches:
 
 ```bash
 git switch nixl-resiliency
@@ -79,18 +82,54 @@ git merge --signoff main
 git push origin nixl-resiliency
 ```
 
-Then update each active feature branch from integration:
+After the integration push succeeds, rebase each active feature PR branch:
 
 ```bash
 git switch resiliency/forwarding-engine # Substitute the active feature branch.
-git merge --signoff nixl-resiliency
-# Resolve conflicts, reuse newly available upstream code, and run relevant tests.
-git push origin resiliency/forwarding-engine
+git rebase origin/nixl-resiliency
+# Resolve conflicts, reuse upstream code, run relevant checks, and review the PR diff.
+git push --force-with-lease origin resiliency/forwarding-engine
 ```
 
-Use merges to preserve published feature history. Inspect upstream API and test
-changes during integration, and remove local substitutes when upstream now
-provides the same functionality.
+Inspect local/remote feature divergence and preserve all work before rebasing.
+Keep shared instructions in integration so feature PRs inherit the same AGENTS.md.
+Use merges for shared integration history; never rebase or force-push `main` or
+`nixl-resiliency`. Use `--force-with-lease` when publishing rebased feature branches.
+Remove local substitutes when upstream now provides the same functionality.
+
+## Test scope and CI cost
+
+- When using Ponytail or generating tests, prioritize focused coverage that a
+  reviewer can understand quickly. Test volume is not a goal.
+- Reuse existing fixtures and helpers. Add the smallest set of cases that proves
+  the behavior, catches the relevant regression, and protects distinct failure
+  and cleanup paths.
+- Avoid exhaustive combinations or testing every status against every method
+  when representative cases exercise the same forwarding logic. Expand coverage
+  when cases have different behavior or a specific requirement demands it.
+- Keep lifecycle, error-handling, and safety checks that catch distinct bugs;
+  remove redundant cases and assertions that merely repeat the implementation.
+- Consider total CI cost: fixture compilation, shared libraries, dependencies,
+  sanitizer builds, and test execution. Prefer extending existing test targets
+  and fixtures over adding parallel infrastructure when it fits.
+- Run focused checks during development. Before broad or repeated runs, identify
+  what additional risk they cover. Explain unusually large test additions or
+  expensive checks in the PR description.
+
+## Repository conventions
+
+- Before coding, read `CONTRIBUTING.md`, `.clang-tidy`, `.clang-format`, and
+  applicable `.pre-commit-config.yaml` hooks. Nearby legacy code may use older
+  conventions; do not treat it as the only style reference.
+- Follow configured rules even when CI does not enforce them. Classes, structs,
+  methods, and members use `camelBack` (`engineDeleter`). Type aliases use
+  `lower_case_t` (`engine_ptr_t`); local variables and parameters use `lower_case`.
+  Private members also have a trailing underscore (`pluginOwner_`).
+- Preserve names required by existing APIs and test frameworks. Avoid unrelated
+  renaming of existing code.
+- Before committing, check new declarations against the naming rules and run
+  applicable format/lint checks. If a tool is unavailable, inspect the relevant
+  rules manually and report the missing check; do not silently skip conventions.
 
 ## Communication style
 
