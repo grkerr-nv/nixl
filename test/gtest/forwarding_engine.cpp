@@ -23,9 +23,9 @@ using testing::Eq;
 using testing::Ref;
 using testing::Return;
 using testing::SetArgReferee;
-using nixl::fault::EngineDeleter;
-using nixl::fault::EnginePtr;
-using nixl::fault::ForwardingEngine;
+using nixl::fault::engineDeleter;
+using nixl::fault::engine_ptr_t;
+using nixl::fault::forwardingEngine;
 
 namespace {
 
@@ -48,6 +48,7 @@ public:
 
     int *destructions = nullptr;
     int *destroyCallbacks = nullptr;
+    std::weak_ptr<void> pluginOwner;
 };
 
 class ForwardingEngineTest : public testing::Test {
@@ -59,26 +60,30 @@ protected:
                                  .syncMode = nixl_thread_sync_t::NIXL_THREAD_SYNC_NONE};
     using Mock = testing::StrictMock<ForwardingMock>;
 
-    std::unique_ptr<Mock, EngineDeleter>
+    std::unique_ptr<Mock, engineDeleter>
     makeEngine(int *destructions = nullptr) {
         auto *mock = new Mock(&params);
         mock->destructions = destructions;
-        return std::unique_ptr<Mock, EngineDeleter>(mock);
+        return std::unique_ptr<Mock, engineDeleter>(mock);
     }
 };
 
 TEST_F(ForwardingEngineTest, PreservesInitializationStateThroughBasePointer) {
     auto engine = makeEngine();
     engine->failInitialization();
+    // OBJ backends can add caller parameters after their base class snapshots them.
+    custom.emplace("resp_checksum", "required");
     ASSERT_EQ(engine->setInitParam("backend", "discovered-value"), NIXL_SUCCESS);
-    ForwardingEngine wrapper(&params, std::move(engine));
+    forwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_TRUE(base.getInitErr());
     EXPECT_EQ(base.getType(), "UCX");
     EXPECT_EQ(base.getCustomParams(),
-              (nixl_b_params_t{{"caller", "value"}, {"backend", "discovered-value"}}));
+              (nixl_b_params_t{{"caller", "value"},
+                               {"resp_checksum", "required"},
+                               {"backend", "discovered-value"}}));
     EXPECT_TRUE(base.getTelemetryEvents().empty());
-    EXPECT_EQ(custom.size(), 1U);
+    EXPECT_EQ(custom.size(), 2U);
 }
 
 TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
@@ -88,7 +93,7 @@ TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
     EXPECT_CALL(*engine, supportsNotif()).WillOnce(Return(false));
     EXPECT_CALL(*engine, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
     EXPECT_CALL(*engine, getSupportedMems()).WillOnce(Return(nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
-    ForwardingEngine wrapper(&params, std::move(engine));
+    forwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.supportsRemote());
     EXPECT_TRUE(base.supportsLocal());
@@ -103,43 +108,55 @@ TEST_F(ForwardingEngineTest, DestroysOwnedEngineExactlyOnce) {
     auto engine = makeEngine(&destructions);
     {
         std::unique_ptr<nixlBackendEngine> wrapper =
-            std::make_unique<ForwardingEngine>(&params, std::move(engine));
+            std::make_unique<forwardingEngine>(&params, std::move(engine));
         EXPECT_EQ(destructions, 0);
     }
     EXPECT_EQ(destructions, 1);
 }
 
-TEST_F(ForwardingEngineTest, UsesPluginDestroyCallbackExactlyOnce) {
+TEST_F(ForwardingEngineTest, KeepsPluginAliveThroughEngineDestruction) {
     int destructions = 0;
     int callbacks = 0;
+    auto plugin_owner = std::make_shared<int>(0);
+    std::weak_ptr<void> observer = plugin_owner;
     auto *mock = new Mock(&params);
     mock->destructions = &destructions;
     mock->destroyCallbacks = &callbacks;
-    EnginePtr engine(mock, EngineDeleter([](nixlBackendEngine *engine) {
-                         ++*static_cast<ForwardingMock *>(engine)->destroyCallbacks;
-                         delete engine;
-                     }));
-    { ForwardingEngine wrapper(&params, std::move(engine)); }
+    mock->pluginOwner = plugin_owner;
+    engine_ptr_t engine(mock,
+                        engineDeleter(
+                            [](nixlBackendEngine *engine) {
+                                const auto *mock = static_cast<ForwardingMock *>(engine);
+                                EXPECT_FALSE(mock->pluginOwner.expired());
+                                ++*mock->destroyCallbacks;
+                                delete engine;
+                            },
+                            plugin_owner));
+    plugin_owner.reset();
+    EXPECT_FALSE(observer.expired());
+    { forwardingEngine wrapper(&params, std::move(engine)); }
+    EXPECT_TRUE(observer.expired());
     EXPECT_EQ(callbacks, 1);
     EXPECT_EQ(destructions, 1);
 }
 
-TEST_F(ForwardingEngineTest, RejectsNullEngineAndDestroyCallback) {
-    EXPECT_THROW(ForwardingEngine(&params, EnginePtr{}), std::invalid_argument);
-    EXPECT_THROW(EngineDeleter(nullptr), std::invalid_argument);
+TEST_F(ForwardingEngineTest, RejectsNullEngineAndInvalidPluginDeleter) {
+    EXPECT_THROW(forwardingEngine(&params, engine_ptr_t{}), std::invalid_argument);
+    EXPECT_THROW(engineDeleter(nullptr, std::make_shared<int>(0)), std::invalid_argument);
+    EXPECT_THROW(engineDeleter([](nixlBackendEngine *) {}, nullptr), std::invalid_argument);
 }
 
 TEST_F(ForwardingEngineTest, RejectsInvalidInitializationParametersAndCleansUp) {
     int destructions = 0;
     auto engine = makeEngine(&destructions);
-    EXPECT_THROW(ForwardingEngine(nullptr, std::move(engine)), std::invalid_argument);
+    EXPECT_THROW(forwardingEngine(nullptr, std::move(engine)), std::invalid_argument);
     EXPECT_EQ(destructions, 1);
 }
 
 TEST_F(ForwardingEngineTest, AcceptsNullParameterMapAndTelemetry) {
     params.customParams = nullptr;
     params.enableTelemetry_ = true;
-    ForwardingEngine wrapper(&params, makeEngine());
+    forwardingEngine wrapper(&params, makeEngine());
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.getInitErr());
     EXPECT_EQ(base.getType(), params.type);
@@ -151,7 +168,7 @@ TEST_F(ForwardingEngineTest, RejectsMismatchedBackendIdentityAndCleansUp) {
     int destructions = 0;
     auto engine = makeEngine(&destructions);
     params.type = "POSIX";
-    EXPECT_THROW(ForwardingEngine(&params, std::move(engine)), std::invalid_argument);
+    EXPECT_THROW(forwardingEngine(&params, std::move(engine)), std::invalid_argument);
     EXPECT_EQ(destructions, 1);
 }
 
@@ -159,7 +176,7 @@ TEST_F(ForwardingEngineTest, RejectsMismatchedBackendParametersAndCleansUp) {
     int destructions = 0;
     auto engine = makeEngine(&destructions);
     custom["caller"] = "changed-after-engine-creation";
-    EXPECT_THROW(ForwardingEngine(&params, std::move(engine)), std::invalid_argument);
+    EXPECT_THROW(forwardingEngine(&params, std::move(engine)), std::invalid_argument);
     EXPECT_EQ(destructions, 1);
 }
 
@@ -191,7 +208,7 @@ TEST_F(ForwardingEngineTest, PreservesRegistrationMetadataAndConnectionResults) 
         .WillOnce(DoAll(SetArgReferee<3>(&metadata), Return(status)));
     EXPECT_CALL(*engine, loadLocalMD(&metadata, Ref(output)))
         .WillOnce(DoAll(SetArgReferee<1>(&metadata), Return(status)));
-    ForwardingEngine wrapper(&params, std::move(engine));
+    forwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.registerMem(desc, memory, output), status);
     EXPECT_EQ(output, &metadata);
@@ -237,7 +254,7 @@ TEST_F(ForwardingEngineTest, PreservesTransferHandlesAndOptionalArguments) {
         .WillOnce(DoAll(SetArgReferee<4>(&posted), Return(status)));
     EXPECT_CALL(*engine, checkXfer(&posted)).WillOnce(Return(status));
     EXPECT_CALL(*engine, releaseReqH(&posted)).WillOnce(Return(status));
-    ForwardingEngine wrapper(&params, std::move(engine));
+    forwardingEngine wrapper(&params, std::move(engine));
     const nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.prepXfer(operation, local, remote, peer, handle, &args), status);
     EXPECT_EQ(handle, &prepared);
@@ -298,7 +315,7 @@ TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
                         SetArgReferee<6>(std::chrono::microseconds{7}),
                         SetArgReferee<7>(nixl_cost_t::ANALYTICAL_BACKEND),
                         Return(status)));
-    ForwardingEngine wrapper(&params, std::move(engine));
+    forwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_EQ(base.prepMemView(local, view, &args), status);
     EXPECT_EQ(view, &localView);
