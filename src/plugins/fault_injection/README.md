@@ -17,7 +17,7 @@ limitations under the License.
 
 # Resiliency forwarding engine
 
-`forwarding_engine.h` provides `nixl::fault::ForwardingEngine`, a header-only
+`forwarding_engine.h` provides `nixl::fault::forwardingEngine`, a header-only
 helper for the planned fault-injection proxy. It forwards every current
 `nixlBackendEngine` virtual method, including optional methods and both
 memory-view overloads.
@@ -25,24 +25,26 @@ memory-view overloads.
 ## Ownership and use
 
 The proxy plugin will create the genuine engine with the original initialization
-parameters, move it into `ForwardingEngine`, and return the wrapper to NIXL.
+parameters, move it into `forwardingEngine`, and return the wrapper to NIXL.
 vLLM will continue requesting UCX normally.
 
 ```cpp
-const nixl::fault::EngineDeleter destroy(plugin->destroy_engine);
-nixl::fault::EnginePtr engine(plugin->create_engine(&params), destroy);
-auto forwarding = std::make_unique<nixl::fault::ForwardingEngine>(
+const nixl::fault::engineDeleter destroy(plugin->destroy_engine, plugin_owner);
+nixl::fault::engine_ptr_t engine(plugin->create_engine(&params), destroy);
+auto forwarding = std::make_unique<nixl::fault::forwardingEngine>(
     &params, std::move(engine));
 ```
 
-`EnginePtr` owns the engine. Supply the genuine plugin's `destroy_engine` callback
-through `EngineDeleter`; its default uses `delete` for directly allocated engines,
-including test mocks. Keep the plugin loaded until engine destruction completes.
-Cleanup runs once, including when wrapper construction fails.
+`engine_ptr_t` owns the engine. Supply the genuine plugin's `destroy_engine` callback
+through `engineDeleter`, along with `plugin_owner`, a shared owner that finalizes
+and unloads the plugin. The deleter retains that owner until engine cleanup has
+finished. Its default uses `delete` for directly allocated engines, including
+mocks. Cleanup runs once, including when wrapper construction fails.
 
-Null initialization parameters, a null engine or destroy callback, and mismatched
-backend types or parameter maps throw `std::invalid_argument`. A null parameter
-map is valid. Pass the same initialization parameters to both engines.
+Null initialization parameters, a null engine, missing plugin ownership or destroy
+callback, and conflicting backend types or parameter values throw
+`std::invalid_argument`. A null parameter map is valid. Engine-discovered keys are
+adopted; caller-only keys added during engine initialization are preserved.
 
 Calls preserve arguments, return values, and output references. Metadata, request
 handles, and memory views stay genuine-backend objects. Release them through the
@@ -75,5 +77,5 @@ meson test -C build --no-rebuild forwarding_engine --print-errorlogs
 Tests need no GPUs, network peers, or inference framework. They cover every
 current virtual method, argument identity, representative statuses, outputs,
 opaque handles, initialization, and cleanup. Extend the wrapper and tests when
-the interface grows; new pure virtual methods and changed overridden signatures
-also fail compilation.
+the interface grows. A build check compares virtual method names and overload
+counts, including optional methods. C++ `override` checks enforce signatures.
