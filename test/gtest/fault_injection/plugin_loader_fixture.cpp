@@ -24,62 +24,62 @@
 #include <stdexcept>
 
 namespace {
-using loader_fixture::Mode;
-using loader_fixture::Event;
-Mode mode = Mode::Valid;
-loader_fixture::Observer observer;
+using loader_fixture::fixture_mode_t;
+using loader_fixture::fixture_event_t;
+fixture_mode_t mode = fixture_mode_t::VALID;
+loader_fixture::observer observer;
 
 void
-record(Event event, const nixlBackendInitParams *params = nullptr) {
+record(fixture_event_t event, const nixlBackendInitParams *params = nullptr) {
     if (observer.record) {
         observer.record(observer.context, event, params);
     }
 }
 
-class FixtureEngine : public mocks::GMockBackendEngine {
+class fixtureEngine : public mocks::GMockBackendEngine {
 public:
-    explicit FixtureEngine(const nixlBackendInitParams *params)
+    explicit fixtureEngine(const nixlBackendInitParams *params)
         : mocks::GMockBackendEngine(params) {
-        initErr = mode == Mode::EngineInitError;
+        initErr = mode == fixture_mode_t::ENGINE_INIT_ERROR;
     }
 
-    ~FixtureEngine() override {
-        record(Event::EngineDestroyed);
+    ~fixtureEngine() override {
+        record(fixture_event_t::ENGINE_DESTROYED);
     }
 };
 
 nixlBackendEngine *
 create(const nixlBackendInitParams *params) {
-    record(Event::Create, params);
-    if (mode == Mode::NullEngine) {
+    record(fixture_event_t::CREATE, params);
+    if (mode == fixture_mode_t::NULL_ENGINE) {
         return nullptr;
     }
-    if (mode == Mode::ThrowCreate) {
+    if (mode == fixture_mode_t::THROW_CREATE) {
         throw std::runtime_error("fixture create failed");
     }
-    return new testing::NiceMock<FixtureEngine>(params);
+    return new testing::NiceMock<fixtureEngine>(params);
 }
 
 void
 destroy(nixlBackendEngine *engine) {
-    record(Event::DestroyCallback);
+    record(fixture_event_t::DESTROY_CALLBACK);
     delete engine;
 }
 
 const char *
 name() {
-    if (mode == Mode::NullName) {
+    if (mode == fixture_mode_t::NULL_NAME) {
         return nullptr;
     }
-    return mode == Mode::EmptyName ? "" : "LOADER_FIXTURE";
+    return mode == fixture_mode_t::EMPTY_NAME ? "" : "LOADER_FIXTURE";
 }
 
 const char *
 version() {
-    if (mode == Mode::NullVersion) {
+    if (mode == fixture_mode_t::NULL_VERSION) {
         return nullptr;
     }
-    return mode == Mode::EmptyVersion ? "" : "1.2.3";
+    return mode == fixture_mode_t::EMPTY_VERSION ? "" : "1.2.3";
 }
 
 nixl_b_params_t
@@ -95,49 +95,58 @@ mems() {
 } // namespace
 
 extern "C" NIXL_PLUGIN_EXPORT void
-loader_fixture_configure(Mode next, loader_fixture::Observer nextObserver) {
+loader_fixture_configure(fixture_mode_t next, loader_fixture::observer next_observer) {
     mode = next;
-    observer = nextObserver;
+    observer = next_observer;
 }
 
 extern "C" NIXL_PLUGIN_EXPORT nixlBackendPlugin *
 nixl_plugin_init() {
-    record(Event::Init);
-    if (mode == Mode::NullInit) {
+    record(fixture_event_t::INIT);
+    if (mode == fixture_mode_t::NULL_INIT) {
         return nullptr;
     }
-    if (mode == Mode::ThrowInit) {
+    if (mode == fixture_mode_t::THROW_INIT) {
         throw std::runtime_error("fixture init failed");
     }
     static nixlBackendPlugin plugin;
     plugin = {NIXL_PLUGIN_API_VERSION, create, destroy, name, version, options, mems};
     switch (mode) {
-    case Mode::OldApi:
+    case fixture_mode_t::OLD_API:
         plugin.api_version = NIXL_PLUGIN_API_VERSION - 1;
         break;
-    case Mode::NoCreate:
+    case fixture_mode_t::NO_CREATE:
         plugin.create_engine = nullptr;
         break;
-    case Mode::NoDestroy:
+    case fixture_mode_t::NO_DESTROY:
         plugin.destroy_engine = nullptr;
         break;
-    case Mode::NoNameCallback:
+    case fixture_mode_t::NO_NAME_CALLBACK:
         plugin.get_plugin_name = nullptr;
         break;
-    case Mode::NoVersionCallback:
+    case fixture_mode_t::NO_VERSION_CALLBACK:
         plugin.get_plugin_version = nullptr;
         break;
-    case Mode::NoOptions:
+    case fixture_mode_t::NO_OPTIONS:
         plugin.get_backend_options = nullptr;
         break;
-    case Mode::NoMems:
+    case fixture_mode_t::NO_MEMS:
         plugin.get_backend_mems = nullptr;
         break;
-    case Mode::NoOptional:
+    case fixture_mode_t::NO_OPTIONAL:
         plugin.get_backend_options = nullptr;
         plugin.get_backend_mems = nullptr;
         break;
-    default:
+    case fixture_mode_t::VALID:
+    case fixture_mode_t::NULL_INIT:
+    case fixture_mode_t::THROW_INIT:
+    case fixture_mode_t::NULL_NAME:
+    case fixture_mode_t::EMPTY_NAME:
+    case fixture_mode_t::NULL_VERSION:
+    case fixture_mode_t::EMPTY_VERSION:
+    case fixture_mode_t::NULL_ENGINE:
+    case fixture_mode_t::THROW_CREATE:
+    case fixture_mode_t::ENGINE_INIT_ERROR:
         break;
     }
     return &plugin;
@@ -146,6 +155,6 @@ nixl_plugin_init() {
 #ifndef LOADER_FIXTURE_NO_FINI
 extern "C" NIXL_PLUGIN_EXPORT void
 nixl_plugin_fini() {
-    record(Event::Finalize);
+    record(fixture_event_t::FINALIZE);
 }
 #endif
