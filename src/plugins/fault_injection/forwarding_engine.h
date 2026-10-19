@@ -17,47 +17,12 @@
 #ifndef NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 #define NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 
-#include "backend/backend_engine.h"
+#include "engine_ptr.h"
 
-#include <memory>
 #include <stdexcept>
 #include <utility>
 
 namespace nixl::fault {
-
-// Plugin ownership keeps its callbacks valid through engine destruction.
-class engineDeleter {
-public:
-    using destroy_t = void (*)(nixlBackendEngine *);
-
-    engineDeleter() = default;
-
-    engineDeleter(destroy_t destroy, std::shared_ptr<void> plugin_owner)
-        : destroy_(destroy),
-          pluginOwner_(std::move(plugin_owner)) {
-        if (!destroy_ || !pluginOwner_) {
-            throw std::invalid_argument("A plugin destroy callback and shared owner are required");
-        }
-    }
-
-    void
-    operator()(nixlBackendEngine *engine) const {
-        destroy_(engine);
-    }
-
-private:
-    // Default cleanup for directly allocated engines; plugin engines use their callback.
-    static void
-    deleteEngine(nixlBackendEngine *engine) {
-        delete engine;
-    }
-
-    destroy_t destroy_ = deleteEngine;
-    // Released after unique_ptr invokes the callback; the owner finalizes/unloads the plugin.
-    std::shared_ptr<void> pluginOwner_;
-};
-
-using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
 
 // Owns an initialized engine; opaque handles remain owned by that engine.
 // Base-class getters expose a snapshot of initialization state. The nonvirtual
@@ -65,7 +30,7 @@ using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
 // not currently drain backend telemetry queues, so no events are lost.
 class forwardingEngine : public nixlBackendEngine {
 public:
-    forwardingEngine(const nixlBackendInitParams *params, std::shared_ptr<nixlBackendEngine> engine)
+    forwardingEngine(const nixlBackendInitParams *params, engine_ptr_t engine)
         : nixlBackendEngine(validateParams(params)),
           engine_(std::move(engine)) {
         if (!engine_) {
@@ -254,7 +219,7 @@ private:
     }
 
     // Own the genuine engine and invoke its deleter on destruction or constructor failure.
-    std::shared_ptr<nixlBackendEngine> engine_;
+    engine_ptr_t engine_;
 };
 
 } // namespace nixl::fault

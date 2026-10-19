@@ -97,10 +97,10 @@ auto forwarding = std::make_unique<nixl::fault::forwardingEngine>(
     &params, std::move(engine));
 ```
 
-The constructor accepts `std::shared_ptr<nixlBackendEngine>`. Moving an owning
-`unique_ptr` into it retains the original deleter, including the loader's plugin
-ownership. For loader-created engines, pass `loader.createEngine(&params)`
-directly; no raw-pointer release or new deleter is needed.
+The loader and forwarder share `engine_ptr_t`, defined in `engine_ptr.h` as
+`std::unique_ptr<nixlBackendEngine, engineDeleter>`. Moving it into the constructor
+transfers exclusive engine ownership with its original deleter. Pass
+`loader.createEngine(&params)` directly, without releasing the raw pointer.
 
 `engine_ptr_t` owns the engine. Supply the genuine plugin's `destroy_engine` callback
 through `engineDeleter`, along with `plugin_owner`, a shared owner that finalizes

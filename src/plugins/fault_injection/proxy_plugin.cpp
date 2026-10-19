@@ -121,7 +121,7 @@ nixlBackendEngine *
 createEngine(const nixlBackendInitParams *params) {
     try {
         const auto owner = getState();
-        // Converting unique_ptr to shared_ptr retains the genuine plugin's deleter and lifetime.
+        // Move the unique owner with its genuine plugin deleter and lifetime.
         return new nixl::fault::forwardingEngine(params, owner->loader.createEngine(params));
     }
     catch (const std::exception &error) {

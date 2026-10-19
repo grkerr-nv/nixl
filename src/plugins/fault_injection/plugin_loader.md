@@ -32,7 +32,9 @@ The loader is noncopyable. It passes `params` unchanged and preserves the engine
 initialization-error flag; callers must check `getInitErr()`. A null parameter map
 is valid; a null `params` pointer is rejected.
 
-`engine_ptr_t` calls the plugin's `destroy_engine` callback and retains library
+`pluginLoader::engine_ptr_t` aliases the common `nixl::fault::engine_ptr_t` from
+`engine_ptr.h`, also used by the forwarding engine. It calls the plugin's
+`destroy_engine` callback and retains library
 ownership, so engines can outlive the loader. Resetting the pointer destroys the
 engine; its deleter retains ownership until the pointer itself is destroyed.
 The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Destroy and

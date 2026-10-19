@@ -18,7 +18,7 @@
 #ifndef NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
 #define NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
 
-#include "backend/backend_engine.h"
+#include "engine_ptr.h"
 
 #include <filesystem>
 #include <memory>
@@ -31,20 +31,8 @@ class pluginLoader {
     struct pluginState;
 
 public:
-    class engineDeleter {
-    public:
-        void
-        operator()(nixlBackendEngine *engine) const noexcept;
-
-    private:
-        friend class pluginLoader;
-        explicit engineDeleter(std::shared_ptr<pluginState> state);
-
-        // Keep callbacks and backend code alive until the owning pointer is destroyed.
-        std::shared_ptr<pluginState> state_;
-    };
-
-    using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
+    using engineDeleter = nixl::fault::engineDeleter;
+    using engine_ptr_t = nixl::fault::engine_ptr_t;
 
     // Throws for relative paths, loading errors, or an invalid plugin interface.
     // deepbind adds RTLD_DEEPBIND, as core does for UCX when NIXL_UCX_DEEPBIND is set.
