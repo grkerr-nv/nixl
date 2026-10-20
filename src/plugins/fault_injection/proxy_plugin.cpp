@@ -21,8 +21,10 @@
 #include "common/configuration.h"
 #include "common/nixl_log.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <cstdint>
+#include <deque>
 #include <dlfcn.h>
 #include <filesystem>
 #include <memory>
@@ -92,29 +94,49 @@ readPluginPath() {
 }
 
 struct proxyState {
-    explicit proxyState(const std::filesystem::path &path)
-        : loader(path, shouldDeepBind()),
-          name(loader.getName()),
-          version(loader.getVersion()) {}
+    explicit proxyState(const std::filesystem::path &path) : loader(path, shouldDeepBind()) {}
 
     nixl::fault::pluginLoader loader;
-    std::string name;
-    std::string version;
 };
+
+// What core reports for an accessor a plugin does not provide. The proxy matches it
+// whenever it has no genuine plugin to describe.
+constexpr const char *unknown_identity = "unknown";
 
 std::mutex state_mutex;
 // Core may finalize plugins after DSO globals have been destroyed at process exit.
 // Own the slot explicitly between init/fini instead of registering a static destructor.
 std::shared_ptr<proxyState> *state = nullptr;
 size_t initializations = 0;
+// Identity the plugin ABI returns as const char *. Core reads it through a handle it
+// still holds after the last nixl_plugin_fini(), so it cannot live in proxyState.
+std::atomic<const char *> plugin_name{unknown_identity};
+std::atomic<const char *> plugin_version{unknown_identity};
+
+// Keeps identity strings alive as long as the library is loaded, as core's own plugins do.
+// Appends rather than replacing, so a pointer returned before a re-initialization stays
+// valid. Call under state_mutex.
+const char *
+retainIdentity(const std::string &value) {
+    static std::deque<std::string> values;
+    return values.emplace_back(value).c_str();
+}
+
+// Accessors run on the plugin ABI, which core calls without an exception handler. Report
+// an uninitialized proxy instead of throwing across it.
+std::shared_ptr<proxyState>
+tryGetState() {
+    const std::lock_guard lock(state_mutex);
+    return state ? *state : nullptr;
+}
 
 std::shared_ptr<proxyState>
 getState() {
-    const std::lock_guard lock(state_mutex);
-    if (!state) {
+    auto owner = tryGetState();
+    if (!owner) {
         throw std::runtime_error("Fault proxy is not initialized");
     }
-    return *state;
+    return owner;
 }
 
 nixlBackendEngine *
@@ -133,14 +155,26 @@ createEngine(const nixlBackendInitParams *params) {
     return nullptr;
 }
 
+nixl_b_params_t
+backendOptions() {
+    const auto owner = tryGetState();
+    return owner ? owner->loader.getBackendOptions() : nixl_b_params_t{};
+}
+
+nixl_mem_list_t
+backendMems() {
+    const auto owner = tryGetState();
+    return owner ? owner->loader.getBackendMems() : nixl_mem_list_t{};
+}
+
 nixlBackendPlugin plugin = {
     NIXL_PLUGIN_API_VERSION,
     createEngine,
     [](nixlBackendEngine *engine) { delete engine; },
-    []() { return getState()->name.c_str(); },
-    []() { return getState()->version.c_str(); },
-    []() { return getState()->loader.getBackendOptions(); },
-    []() { return getState()->loader.getBackendMems(); },
+    []() { return plugin_name.load(std::memory_order_acquire); },
+    []() { return plugin_version.load(std::memory_order_acquire); },
+    backendOptions,
+    backendMems,
 };
 
 } // namespace
@@ -150,8 +184,14 @@ nixl_plugin_init() {
     try {
         const std::lock_guard lock(state_mutex);
         if (!state) {
-            state = new std::shared_ptr<proxyState>(std::make_shared<proxyState>(readPluginPath()));
-            NIXL_INFO << "Fault proxy initialized for " << (*state)->name << "; injection disabled";
+            auto created = std::make_shared<proxyState>(readPluginPath());
+            // Retain both before publishing either, so identity never goes half updated.
+            const char *name = retainIdentity(created->loader.getName());
+            const char *version = retainIdentity(created->loader.getVersion());
+            plugin_name.store(name, std::memory_order_release);
+            plugin_version.store(version, std::memory_order_release);
+            state = new std::shared_ptr<proxyState>(std::move(created));
+            NIXL_INFO << "Fault proxy initialized for " << name << "; injection disabled";
         }
         ++initializations;
         return &plugin;
@@ -173,6 +213,10 @@ nixl_plugin_fini() {
         if (initializations && --initializations == 0) {
             previous = std::move(*state);
             delete std::exchange(state, nullptr);
+            // Describe the finalized proxy as core describes a missing accessor. Strings
+            // handed out earlier stay valid; retainIdentity never frees them.
+            plugin_name.store(unknown_identity, std::memory_order_release);
+            plugin_version.store(unknown_identity, std::memory_order_release);
         }
     }
     // Engine deleters keep the genuine plugin alive after the proxy's last finalization.

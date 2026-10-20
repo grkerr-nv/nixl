@@ -68,7 +68,11 @@ The proxy reads configuration once per initialized lifetime. Matching calls to
 `nixl_plugin_init` and `nixl_plugin_fini` share that state. Genuine engines retain
 their plugin until their destruction, including after proxy finalization.
 Matching initialization/finalization calls own the callback state explicitly,
-avoiding C++ static-destructor ordering during late core shutdown.
+avoiding C++ static-destructor ordering during late core shutdown. Identity
+accessors never throw across the plugin ABI; after the last finalization they
+report `unknown` and empty option and memory lists, as core reports for an
+accessor a plugin omits. Name and version strings stay readable for as long as
+the proxy library is loaded.
 Factory exceptions become logged errors and null results. When discovered as
 `libplugin_UCX.so`, the proxy applies core's `NIXL_UCX_DEEPBIND` policy to the
 genuine library. See [loader limitations](plugin_loader.md).
