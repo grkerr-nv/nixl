@@ -210,6 +210,24 @@ TEST_F(proxyPluginTest, PreservesIdentityAndForwardsTransferWithOriginalHandles)
                                             fixture_event_t::FINALIZE}));
 }
 
+TEST_F(proxyPluginTest, KeepsIdentityReadableAfterFinalization) {
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    const char *name = plugin->get_plugin_name();
+    const char *version = plugin->get_plugin_version();
+    finalize();
+    // Core still holds the handle after the last finalization. Accessors must not throw
+    // across the plugin ABI, and strings returned earlier must stay readable.
+    EXPECT_STREQ(name, "LOADER_FIXTURE");
+    EXPECT_STREQ(version, "1.2.3");
+    EXPECT_STREQ(plugin->get_plugin_name(), "unknown");
+    EXPECT_STREQ(plugin->get_plugin_version(), "unknown");
+    EXPECT_TRUE(plugin->get_backend_options().empty());
+    EXPECT_TRUE(plugin->get_backend_mems().empty());
+    ASSERT_NE(initialize(), nullptr);
+    EXPECT_STREQ(plugin->get_plugin_name(), "LOADER_FIXTURE");
+}
+
 TEST_F(proxyPluginTest, BalancesRepeatedInitializationAndReadsConfigurationOnce) {
     auto *first = initialize();
     ASSERT_NE(first, nullptr);
