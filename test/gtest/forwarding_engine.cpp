@@ -64,7 +64,7 @@ protected:
     makeEngine(int *destructions = nullptr) {
         auto *mock = new Mock(&params);
         mock->destructions = destructions;
-        return std::unique_ptr<Mock, engineDeleter>(mock);
+        return std::unique_ptr<Mock, engineDeleter>(mock, engineDeleter::forOwnedEngine());
     }
 };
 
@@ -141,7 +141,8 @@ TEST_F(ForwardingEngineTest, KeepsPluginAliveThroughEngineDestruction) {
 }
 
 TEST_F(ForwardingEngineTest, RejectsNullEngineAndInvalidPluginDeleter) {
-    EXPECT_THROW(forwardingEngine(&params, engine_ptr_t{}), std::invalid_argument);
+    EXPECT_THROW(forwardingEngine(&params, engine_ptr_t(nullptr, engineDeleter::forOwnedEngine())),
+                 std::invalid_argument);
     EXPECT_THROW(engineDeleter(nullptr, std::make_shared<int>(0)), std::invalid_argument);
     EXPECT_THROW(engineDeleter([](nixlBackendEngine *) {}, nullptr), std::invalid_argument);
 }
