@@ -132,17 +132,6 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     state_ = std::move(state);
 }
 
-pluginLoader::engineDeleter::engineDeleter(std::shared_ptr<pluginState> state)
-    : state_(std::move(state)) {}
-
-void
-pluginLoader::engineDeleter::operator()(nixlBackendEngine *engine) const noexcept {
-    // std::unique_ptr invokes this automatically during engine cleanup.
-    if (engine) {
-        state_->plugin->destroy_engine(engine);
-    }
-}
-
 std::string
 pluginLoader::getName() const {
     return state_->plugin->get_plugin_name();
@@ -171,7 +160,7 @@ pluginLoader::createEngine(const nixlBackendInitParams *params) const {
         throw std::invalid_argument("Backend initialization parameters are required");
     }
     // Construct the owner first so no allocation can leak a successfully created engine.
-    engine_ptr_t engine(nullptr, engineDeleter(state_));
+    engine_ptr_t engine(nullptr, engineDeleter(state_->plugin->destroy_engine, state_));
     try {
         engine.reset(state_->plugin->create_engine(params));
     }

@@ -124,6 +124,8 @@ if enabled_plugins.get('GPUNETIO')
     endif
 endif
 
+subdir('fault_injection')
+
 subdir('telemetry')
 
 if nixl_trace_enabled
