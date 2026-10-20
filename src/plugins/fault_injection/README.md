@@ -94,11 +94,23 @@ The proxy plugin will create the genuine engine with the original initialization
 parameters, move it into `forwardingEngine`, and return the wrapper to NIXL.
 vLLM will continue requesting UCX normally.
 
+The proxy's `create_engine` callback must catch construction failures and return
+`nullptr`, as core does not catch exceptions from this callback. Here `plugin`
+is the genuine plugin interface and `plugin_owner` retains its library:
+
 ```cpp
-const nixl::fault::engineDeleter destroy(plugin->destroy_engine, plugin_owner);
-nixl::fault::engine_ptr_t engine(plugin->create_engine(&params), destroy);
-auto forwarding = std::make_unique<nixl::fault::forwardingEngine>(
-    &params, std::move(engine));
+nixlBackendEngine *
+createEngine(const nixlBackendInitParams *params) {
+    try {
+        const nixl::fault::engineDeleter destroy(plugin->destroy_engine, plugin_owner);
+        nixl::fault::engine_ptr_t engine(plugin->create_engine(params), destroy);
+        return new nixl::fault::forwardingEngine(params, std::move(engine));
+    }
+    catch (const std::exception &error) {
+        NIXL_ERROR << "Failed to create forwarding engine: " << error.what();
+        return nullptr;
+    }
+}
 ```
 
 The loader and forwarder share `engine_ptr_t`, defined in `engine_ptr.h` as
@@ -109,11 +121,10 @@ transfers exclusive engine ownership with its original deleter. Pass
 `engine_ptr_t` owns the engine. Supply the genuine plugin's `destroy_engine` callback
 through `engineDeleter`, along with `plugin_owner`, a shared owner that finalizes
 and unloads the plugin. The deleter retains that owner until engine cleanup has
-finished. `engineDeleter` has no default constructor, so every engine pointer names
-how its engine dies; directly allocated engines, including mocks, use
-`engineDeleter::forOwnedEngine()`, which calls `delete` and holds no plugin owner.
-Never adopt a plugin engine with it. Cleanup runs once, including when wrapper
-construction fails.
+finished. Directly allocated engines, including mocks, use the explicit
+`engineDeleter::forOwnedEngine()` factory, which calls `delete` and retains no
+plugin owner. Use the callback-and-owner constructor for plugin-created engines.
+Cleanup runs once, including when wrapper construction fails.
 
 Null initialization parameters, a null engine, missing plugin ownership or destroy
 callback, and conflicting backend types or parameter values throw
