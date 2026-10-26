@@ -61,7 +61,7 @@ forwarding_test = executable('forwarding_engine_test',
     ['forwarding_engine.cpp', 'mocks/gmock_engine.cpp'],
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
     link_depends: forwarding_interface_check,
-    dependencies: [nixl_infra, nixl_common_dep, gmock_dep,
+    dependencies: [nixl_infra, nixl_common_dep, dl_dep, gmock_dep,
                    dependency('gtest', version: '>=1.11.0', main: true)])
 test('forwarding_engine', forwarding_test,
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
