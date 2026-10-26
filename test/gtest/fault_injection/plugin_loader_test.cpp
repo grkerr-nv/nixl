@@ -17,25 +17,46 @@
 
 // Verify plugin validation, metadata, engine creation, and lifetime/cleanup ordering.
 
+#include "forwarding_engine.h"
 #include "plugin_loader.h"
 #include "plugin_loader_fixture_api.h"
 
 #include <gtest/gtest.h>
 
 #include <dlfcn.h>
+#include <unistd.h>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <type_traits>
 #include <string>
 #include <utility>
 #include <vector>
 
+using nixl::fault::engine_ptr_t;
+using nixl::fault::forwardingEngine;
 using nixl::fault::pluginLoader;
 static_assert(!std::is_copy_constructible_v<pluginLoader>);
 static_assert(!std::is_copy_assignable_v<pluginLoader>);
+static_assert(!std::is_move_constructible_v<pluginLoader>);
+static_assert(!std::is_move_assignable_v<pluginLoader>);
 using loader_fixture::fixture_mode_t;
 using loader_fixture::fixture_event_t;
+
+namespace {
+thread_local bool suppress_next_dlerror = false;
+}
+
+// The test's --wrap=dlerror option lets one case suppress a loader diagnostic.
+extern "C" char *
+__real_dlerror() noexcept;
+
+extern "C" char *
+__wrap_dlerror() noexcept {
+    char *error = __real_dlerror();
+    return std::exchange(suppress_next_dlerror, false) ? nullptr : error;
+}
 
 namespace {
 
@@ -81,6 +102,16 @@ public:
              }});
     }
 
+    bool
+    rejectsSelfLoad(const std::filesystem::path &path) const {
+        using probe_t = bool (*)(const char *);
+        const auto probe = reinterpret_cast<probe_t>(dlsym(handle_, "loader_fixture_rejects_self"));
+        if (!probe) {
+            throw std::runtime_error("Missing fixture self-load probe");
+        }
+        return probe(path.c_str());
+    }
+
     std::vector<fixture_event_t> events;
     std::vector<const nixlBackendInitParams *> createParams;
 
@@ -101,6 +132,28 @@ protected:
                                  .enableTelemetry_ = true};
 };
 
+class selfLoadTest : public testing::Test {
+protected:
+    void
+    SetUp() override {
+        fixturePath = std::filesystem::temp_directory_path() /
+            ("nixl_loader_alias_" + std::to_string(getpid()) + ".so");
+        aliasPath = fixturePath.string() + ".alias";
+        std::filesystem::copy_file(LOADER_FIXTURE_PATH, fixturePath);
+        std::filesystem::create_symlink(fixturePath, aliasPath);
+    }
+
+    void
+    TearDown() override {
+        std::error_code ec;
+        std::filesystem::remove(aliasPath, ec);
+        std::filesystem::remove(fixturePath, ec);
+    }
+
+    std::filesystem::path fixturePath;
+    std::filesystem::path aliasPath;
+};
+
 void
 expectLoadFailure(const std::filesystem::path &path, const char *message) {
     try {
@@ -118,8 +171,10 @@ TEST_F(PluginLoaderTest, ReportsPluginMetadataAndFinalizesOnce) {
     fixturePlugin fixture;
     {
         pluginLoader loader(LOADER_FIXTURE_PATH);
-        EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
-        EXPECT_EQ(loader.getVersion(), "1.2.3");
+        const char *name = loader.getName();
+        const char *version = loader.getVersion();
+        EXPECT_STREQ(name, "LOADER_FIXTURE");
+        EXPECT_STREQ(version, "1.2.3");
         EXPECT_EQ(loader.getBackendOptions(), (nixl_b_params_t{{"transport", "fixture"}}));
         EXPECT_EQ(loader.getBackendMems(), (nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
         EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
@@ -150,20 +205,20 @@ TEST_F(PluginLoaderTest, PassesOriginalParametersAndUsesPluginDestroyCallback) {
     EXPECT_EQ(fixture.events.size(), 5U);
 }
 
-TEST_F(PluginLoaderTest, DefersFinalizationUntilLastEngineOwnerIsDestroyed) {
+TEST_F(PluginLoaderTest, DefersFinalizationUntilEngineAndForwarderAreDestroyed) {
     fixturePlugin fixture;
-    std::optional<pluginLoader::engine_ptr_t> first;
-    std::optional<pluginLoader::engine_ptr_t> second;
+    std::optional<engine_ptr_t> first;
+    std::optional<forwardingEngine> second;
     {
         pluginLoader loader(LOADER_FIXTURE_PATH);
         first.emplace(loader.createEngine(&params));
-        second.emplace(loader.createEngine(&params));
+        second.emplace(&params, loader.createEngine(&params));
     }
     EXPECT_EQ(fixture.events,
               (std::vector<fixture_event_t>{
                   fixture_event_t::INIT, fixture_event_t::CREATE, fixture_event_t::CREATE}));
     first.reset();
-    EXPECT_TRUE((*second)->supportsLocal());
+    EXPECT_TRUE(second->supportsLocal());
     EXPECT_EQ(fixture.events,
               (std::vector<fixture_event_t>{fixture_event_t::INIT,
                                             fixture_event_t::CREATE,
@@ -211,16 +266,52 @@ TEST_F(PluginLoaderTest, RejectsRelativeAndEmptyPaths) {
     EXPECT_THROW(pluginLoader(""), std::invalid_argument);
 }
 
+TEST_F(PluginLoaderTest, RejectsSelfLoadAndSymlink) {
+    Dl_info info{};
+    ASSERT_NE(dladdr(reinterpret_cast<void *>(&expectLoadFailure), &info), 0);
+    ASSERT_NE(info.dli_fname, nullptr);
+    const auto self_path = std::filesystem::absolute(info.dli_fname);
+    EXPECT_THROW(pluginLoader{self_path}, std::invalid_argument);
+
+    const auto link = std::filesystem::temp_directory_path() /
+        ("nixl_loader_self_" + std::to_string(getpid()) + ".so");
+    std::filesystem::create_symlink(self_path, link);
+    EXPECT_THROW(pluginLoader{link}, std::invalid_argument);
+    EXPECT_TRUE(std::filesystem::remove(link));
+}
+
+TEST_F(selfLoadTest, RejectsSelfLoadAfterAliasIsRemoved) {
+    fixturePlugin fixture(aliasPath.c_str());
+    ASSERT_TRUE(std::filesystem::remove(aliasPath));
+    EXPECT_TRUE(fixture.rejectsSelfLoad(fixturePath));
+    EXPECT_FALSE(fixture.rejectsSelfLoad(LOADER_FIXTURE_PATH));
+    EXPECT_TRUE(fixture.events.empty());
+}
+
+TEST_F(PluginLoaderTest, AcceptsDeepBindingRequest) {
+    if (LOADER_TEST_SANITIZED) {
+        GTEST_SKIP() << "RTLD_DEEPBIND bypasses sanitizer interposition";
+    }
+    pluginLoader loader(LOADER_FIXTURE_PATH, true);
+    EXPECT_STREQ(loader.getName(), "LOADER_FIXTURE");
+}
+
 TEST_F(PluginLoaderTest, ReportsMissingFile) {
     expectLoadFailure(std::string(LOADER_FIXTURE_PATH) + ".missing", "Cannot load genuine plugin");
+}
+
+TEST_F(PluginLoaderTest, ReportsLoadFailureWithoutDiagnostic) {
+    suppress_next_dlerror = true;
+    expectLoadFailure(std::string(LOADER_FIXTURE_PATH) + ".missing", "unknown error");
 }
 
 TEST_F(PluginLoaderTest, AcceptsPluginWithoutFinalizer) {
     fixturePlugin fixture(LOADER_NO_FINI_PATH);
     {
         pluginLoader loader(LOADER_NO_FINI_PATH);
+        EXPECT_EQ(dlerror(), nullptr);
         auto engine = loader.createEngine(&params);
-        EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
+        EXPECT_STREQ(loader.getName(), "LOADER_FIXTURE");
     }
     EXPECT_EQ(fixture.events,
               (std::vector<fixture_event_t>{fixture_event_t::INIT,
@@ -309,7 +400,7 @@ TEST_P(FailedEngineTest, FailedFactoryLeavesPluginUsableAndFinalizesOnce) {
     {
         pluginLoader loader(LOADER_FIXTURE_PATH);
         EXPECT_THROW(loader.createEngine(&params), std::runtime_error);
-        EXPECT_EQ(loader.getName(), "LOADER_FIXTURE");
+        EXPECT_STREQ(loader.getName(), "LOADER_FIXTURE");
         EXPECT_EQ(fixture.events,
                   (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::CREATE}));
     }
@@ -322,5 +413,47 @@ INSTANTIATE_TEST_SUITE_P(FailedFactories,
                          FailedEngineTest,
                          testing::Values(fixture_mode_t::NULL_ENGINE,
                                          fixture_mode_t::THROW_CREATE));
+
+class cleanupFailureTest : public PluginLoaderTest,
+                           public testing::WithParamInterface<fixture_mode_t> {};
+
+TEST_P(cleanupFailureTest, LogsCleanupFailuresAndPreservesCallerException) {
+    fixturePlugin fixture;
+    fixture.configure(GetParam());
+    testing::internal::CaptureStderr();
+    EXPECT_THROW(
+        {
+            pluginLoader loader(LOADER_FIXTURE_PATH);
+            auto engine = loader.createEngine(&params);
+            throw std::logic_error("caller failure");
+        },
+        std::logic_error);
+    const std::string diagnostic = testing::internal::GetCapturedStderr();
+    const std::string destroy_context =
+        "engine destruction threw in '" + std::string(LOADER_FIXTURE_PATH) + "'";
+    EXPECT_NE(diagnostic.find(destroy_context), std::string::npos) << diagnostic;
+    EXPECT_NE(diagnostic.find("finalization threw"), std::string::npos) << diagnostic;
+    if (GetParam() == fixture_mode_t::THROW_CLEANUP) {
+        EXPECT_NE(diagnostic.find("fixture destroy failed"), std::string::npos) << diagnostic;
+        EXPECT_NE(diagnostic.find("fixture finalization failed"), std::string::npos) << diagnostic;
+    } else {
+        EXPECT_NE(diagnostic.find("unknown exception"), std::string::npos) << diagnostic;
+    }
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::FINALIZE}));
+}
+
+INSTANTIATE_TEST_SUITE_P(CleanupExceptions,
+                         cleanupFailureTest,
+                         testing::Values(fixture_mode_t::THROW_CLEANUP,
+                                         fixture_mode_t::THROW_UNKNOWN_CLEANUP),
+                         [](const testing::TestParamInfo<fixture_mode_t> &info) {
+                             return info.param == fixture_mode_t::THROW_CLEANUP ? "Standard" :
+                                                                                  "Unknown";
+                         });
 
 } // namespace
