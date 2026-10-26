@@ -24,6 +24,7 @@
 #include <exception>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -78,11 +79,12 @@ private:
         delete engine;
     }
 
-    const char *
-    getPluginPath() const noexcept {
+    // Copy the path; dli_fname is owned by the loader and freed on unload.
+    std::string
+    getPluginPath() const {
         Dl_info info{};
         if (dladdr(reinterpret_cast<void *>(destroy_), &info) && info.dli_fname) {
-            return info.dli_fname;
+            return std::string(info.dli_fname);
         }
         return "unknown plugin";
     }
