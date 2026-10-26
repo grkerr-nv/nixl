@@ -25,21 +25,37 @@ perform name-based discovery.
 
 ```cpp
 nixl::fault::pluginLoader plugin("/opt/nixl/real/libplugin_UCX.so");
-auto engine = plugin.createEngine(&params);
+nixl::fault::forwardingEngine proxy(&params, plugin.createEngine(&params));
 ```
 
-The loader is noncopyable. It passes `params` unchanged and preserves the engine's
-initialization-error flag; callers must check `getInitErr()`. A null parameter map
-is valid; a null `params` pointer is rejected.
+Keep the genuine library outside all core discovery directories (including
+`NIXL_PLUGIN_DIR`) and out of the plugin list. Expose only the proxy to core
+to avoid duplicate initialization/finalization. The loader does not enforce
+this separation.
 
-`engine_ptr_t` calls the plugin's `destroy_engine` callback and retains library
+The loader is neither copyable nor movable. It passes `params` unchanged and
+preserves the engine's initialization-error flag; callers must check `getInitErr()`.
+A null parameter map is valid; a null `params` pointer is rejected.
+
+`getName()` and `getVersion()` return borrowed `const char *` metadata directly
+from the genuine plugin. Keep the loader alive while using those pointers;
+copy them into `std::string` if ownership is needed.
+
+The shared `nixl::fault::engine_ptr_t` passes directly into `forwardingEngine`.
+It calls the plugin's `destroy_engine` callback and retains library
 ownership, so engines can outlive the loader. Resetting the pointer destroys the
 engine; its deleter retains ownership until the pointer itself is destroyed.
-The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Destroy and
-finalizer callbacks must not throw. Never release an engine without retaining
+The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Cleanup exceptions
+are logged and suppressed without retry. Never release an engine without retaining
 its deleter and library ownership.
 
 ## Loading and failures
+
+Loading stays local so the proxy can run against an unmodified NIXL build.
+Core's explicit-path loader is private; its public name-based lookup would
+resolve the proxy again. A new core factory would make the proxy depend on a
+modified NIXL build. Keep this sequence aligned with core's loading flags,
+deep-binding fallback, API check, and finalizer/`dlclose` order.
 
 Loading uses `RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE`. `RTLD_NODELETE` avoids
 Abseil/TLS unloading problems on older glibc; cleanup does not promise unmapping.
@@ -66,7 +82,11 @@ Successful initialization gets a matching finalizer call, even if validation
 fails. Initializers that return null or throw must clean up partial state;
 failed factories must clean up partial engine allocations.
 
-## Tests
+## Build and tests
+
+The `nixl_plugin_loader` static library builds independently of tests, including
+when `build_tests=false`. In-tree consumers use `nixl_plugin_loader_dep` to inherit
+its headers and link dependencies. Loader tests link the same library.
 
 With NIXL build dependencies and Google Test/Mock:
 
@@ -76,7 +96,11 @@ meson test -C build plugin_loader --print-errorlogs
 ```
 
 Fixture plugins test metadata, validation, parameter identity, initialization
-errors, factory failures, copy prevention, ownership, and cleanup order.
+errors, factory and cleanup failures, copy prevention, ownership, and cleanup order.
+Self-load rejection covers the test executable, a symlink to it, and a loaded
+fixture whose original alias has been deleted. A deep-binding request test reuses
+the existing fixture; it skips sanitizer builds because
+`RTLD_DEEPBIND` bypasses sanitizer interposition.
 No GPUs, real UCX plugin, peers, or inference framework needed.
 
 For this workspace's unsanitized system Abseil, add
@@ -84,5 +108,5 @@ For this workspace's unsanitized system Abseil, add
 `NDEBUG_SANITIZER` disables extra Abseil generation metadata to preserve its
 hash-table ABI; ASan and UBSan remain enabled.
 
-Forwarder integration, proxy installation, UCX binding-policy selection, TOML,
-and fault injection remain separate work.
+Proxy installation, UCX binding-policy selection, TOML, and fault injection
+remain separate work.

@@ -22,6 +22,7 @@
 
 #include <dlfcn.h>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 #include <utility>
 
@@ -37,7 +38,7 @@ namespace {
             return;
         }
         std::error_code ec;
-        // On failure, skip the guard and let dlopen report the real problem.
+        // On lookup failure, defer to the loaded entrypoint's object identity.
         if (std::filesystem::equivalent(path, info.dli_fname, ec) && !ec) {
             throw std::invalid_argument("Genuine plugin path refers to the proxy itself: " +
                                         path.string());
@@ -52,7 +53,17 @@ struct pluginLoader::pluginState {
 
     ~pluginState() {
         if (plugin && finalize) {
-            finalize();
+            try {
+                finalize();
+            }
+            catch (const std::exception &error) {
+                NIXL_ERROR << "Genuine plugin finalization threw in " << path << ": "
+                           << error.what();
+            }
+            catch (...) {
+                NIXL_ERROR << "Genuine plugin finalization threw in " << path
+                           << ": unknown exception";
+            }
         }
         if (handle) {
             dlclose(handle);
@@ -74,6 +85,7 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     rejectSelfLoad(path);
 
     auto state = std::make_shared<pluginState>(path);
+    // Core's path loader is private; keep this loader usable with unmodified NIXL.
     // Match core's NODELETE workaround for Abseil/TLS unloading on older glibc.
     // We still balance dlopen/dlclose and call the plugin finalizer at logical unload.
     int flags = RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE;
@@ -87,8 +99,9 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     }
     state->handle = dlopen(path.c_str(), flags);
     if (!state->handle) {
+        const char *error = dlerror();
         throw std::runtime_error("Cannot load genuine plugin '" + path.string() +
-                                 "': " + dlerror());
+                                 "': " + (error ? error : "unknown error"));
     }
 
     // nixl_plugin_init takes no arguments and returns the plugin interface.
@@ -100,9 +113,21 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
         throw std::runtime_error("Cannot resolve nixl_plugin_init in '" + path.string() +
                                  "': " + (error ? error : "null entrypoint"));
     }
+    // Object identity survives deleted aliases and changes to the working directory.
+    Dl_info proxy_info{}, plugin_info{};
+    if (!dladdr(reinterpret_cast<void *>(&rejectSelfLoad), &proxy_info) ||
+        !dladdr(reinterpret_cast<void *>(initialize), &plugin_info) || !proxy_info.dli_fbase ||
+        !plugin_info.dli_fbase) {
+        throw std::runtime_error("Cannot identify genuine plugin entrypoint: " + path.string());
+    }
+    if (proxy_info.dli_fbase == plugin_info.dli_fbase) {
+        throw std::invalid_argument("Genuine plugin path refers to the proxy itself: " +
+                                    path.string());
+    }
     // Fini is optional, as in the core plugin manager.
     state->finalize =
         reinterpret_cast<pluginState::finalize_t>(dlsym(state->handle, "nixl_plugin_fini"));
+    dlerror(); // Discard errors from an absent optional finalizer.
     try {
         state->plugin = initialize();
     }
@@ -132,23 +157,12 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     state_ = std::move(state);
 }
 
-pluginLoader::engineDeleter::engineDeleter(std::shared_ptr<pluginState> state)
-    : state_(std::move(state)) {}
-
-void
-pluginLoader::engineDeleter::operator()(nixlBackendEngine *engine) const noexcept {
-    // std::unique_ptr invokes this automatically during engine cleanup.
-    if (engine) {
-        state_->plugin->destroy_engine(engine);
-    }
-}
-
-std::string
+const char *
 pluginLoader::getName() const {
     return state_->plugin->get_plugin_name();
 }
 
-std::string
+const char *
 pluginLoader::getVersion() const {
     return state_->plugin->get_plugin_version();
 }
@@ -165,13 +179,13 @@ pluginLoader::getBackendMems() const {
     return callback ? callback() : nixl_mem_list_t{};
 }
 
-pluginLoader::engine_ptr_t
+engine_ptr_t
 pluginLoader::createEngine(const nixlBackendInitParams *params) const {
     if (!params) {
         throw std::invalid_argument("Backend initialization parameters are required");
     }
     // Construct the owner first so no allocation can leak a successfully created engine.
-    engine_ptr_t engine(nullptr, engineDeleter(state_));
+    engine_ptr_t engine(nullptr, engineDeleter(state_->plugin->destroy_engine, state_));
     try {
         engine.reset(state_->plugin->create_engine(params));
     }
