@@ -23,25 +23,25 @@ loader_fixture_mocks = static_library('loader_fixture_mocks',
 loader_fixture = shared_library('loader_fixture',
     'plugin_loader_fixture.cpp',
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
-    dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
+    dependencies: [nixl_plugin_loader_dep, gmock_dep],
     link_with: loader_fixture_mocks)
 
 loader_fixture_no_fini = shared_library('loader_fixture_no_fini',
     'plugin_loader_fixture.cpp',
     cpp_args: ['-DLOADER_FIXTURE_NO_FINI'],
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
-    dependencies: [nixl_infra, nixl_common_dep, gmock_dep],
+    dependencies: [nixl_plugin_loader_dep, gmock_dep],
     link_with: loader_fixture_mocks)
 
 plugin_loader_test = executable('plugin_loader_test',
-    ['plugin_loader_test.cpp', '../../../src/plugins/fault_injection/plugin_loader.cpp'],
+    'plugin_loader_test.cpp',
+    link_args: ['-Wl,--wrap=dlerror'],
     cpp_args: [
         '-DLOADER_FIXTURE_PATH="' + loader_fixture.full_path() + '"',
         '-DLOADER_NO_FINI_PATH="' + loader_fixture_no_fini.full_path() + '"',
+        '-DLOADER_TEST_SANITIZED=' + (get_option('sanitizer') == 'none' ? '0' : '1'),
     ],
-    include_directories: [nixl_inc_dirs, utils_inc_dirs,
-                         include_directories('../../../src/plugins/fault_injection')],
-    dependencies: [nixl_infra, nixl_common_dep, dl_dep,
+    dependencies: [nixl_plugin_loader_dep,
                    dependency('gtest', version: '>=1.11.0', main: true)])
 
 test('plugin_loader', plugin_loader_test,

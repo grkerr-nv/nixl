@@ -18,7 +18,10 @@
 #define NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 
 #include "backend/backend_engine.h"
+#include "common/nixl_log.h"
 
+#include <dlfcn.h>
+#include <exception>
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
@@ -49,8 +52,18 @@ public:
     }
 
     void
-    operator()(nixlBackendEngine *engine) const {
-        destroy_(engine);
+    operator()(nixlBackendEngine *engine) const noexcept {
+        try {
+            destroy_(engine);
+        }
+        catch (const std::exception &error) {
+            NIXL_ERROR << "Backend engine destruction threw in '" << getPluginPath()
+                       << "': " << error.what();
+        }
+        catch (...) {
+            NIXL_ERROR << "Backend engine destruction threw in '" << getPluginPath()
+                       << "': unknown exception";
+        }
     }
 
 private:
@@ -63,6 +76,15 @@ private:
     static void
     deleteEngine(nixlBackendEngine *engine) {
         delete engine;
+    }
+
+    const char *
+    getPluginPath() const noexcept {
+        Dl_info info{};
+        if (dladdr(reinterpret_cast<void *>(destroy_), &info) && info.dli_fname) {
+            return info.dli_fname;
+        }
+        return "unknown plugin";
     }
 
     destroy_t destroy_;

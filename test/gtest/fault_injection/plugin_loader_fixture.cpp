@@ -18,6 +18,7 @@
 // Fake plugin for unit tests to configure behavior and observe lifecycle events.
 
 #include "plugin_loader_fixture_api.h"
+#include "plugin_loader.h"
 #include "backend/backend_plugin.h"
 #include "../mocks/gmock_engine.h"
 
@@ -28,6 +29,9 @@ using loader_fixture::fixture_mode_t;
 using loader_fixture::fixture_event_t;
 fixture_mode_t mode = fixture_mode_t::VALID;
 loader_fixture::observer observer;
+
+// Exercise catch (...) with an exception outside the std::exception hierarchy.
+struct fixtureCleanupError {};
 
 void
 record(fixture_event_t event, const nixlBackendInitParams *params = nullptr) {
@@ -64,6 +68,12 @@ void
 destroy(nixlBackendEngine *engine) {
     record(fixture_event_t::DESTROY_CALLBACK);
     delete engine;
+    if (mode == fixture_mode_t::THROW_CLEANUP) {
+        throw std::runtime_error("fixture destroy failed");
+    }
+    if (mode == fixture_mode_t::THROW_UNKNOWN_CLEANUP) {
+        throw fixtureCleanupError{};
+    }
 }
 
 const char *
@@ -98,6 +108,17 @@ extern "C" NIXL_PLUGIN_EXPORT void
 loader_fixture_configure(fixture_mode_t next, loader_fixture::observer next_observer) {
     mode = next;
     observer = next_observer;
+}
+
+extern "C" NIXL_PLUGIN_EXPORT bool
+loader_fixture_rejects_self(const char *path) {
+    try {
+        nixl::fault::pluginLoader loader(path);
+    }
+    catch (const std::invalid_argument &) {
+        return true;
+    }
+    return false;
 }
 
 extern "C" NIXL_PLUGIN_EXPORT nixlBackendPlugin *
@@ -146,6 +167,8 @@ nixl_plugin_init() {
     case fixture_mode_t::EMPTY_VERSION:
     case fixture_mode_t::NULL_ENGINE:
     case fixture_mode_t::THROW_CREATE:
+    case fixture_mode_t::THROW_CLEANUP:
+    case fixture_mode_t::THROW_UNKNOWN_CLEANUP:
     case fixture_mode_t::ENGINE_INIT_ERROR:
         break;
     }
@@ -156,5 +179,11 @@ nixl_plugin_init() {
 extern "C" NIXL_PLUGIN_EXPORT void
 nixl_plugin_fini() {
     record(fixture_event_t::FINALIZE);
+    if (mode == fixture_mode_t::THROW_CLEANUP) {
+        throw std::runtime_error("fixture finalization failed");
+    }
+    if (mode == fixture_mode_t::THROW_UNKNOWN_CLEANUP) {
+        throw fixtureCleanupError{};
+    }
 }
 #endif
