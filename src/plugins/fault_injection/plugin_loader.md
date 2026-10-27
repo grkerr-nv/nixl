@@ -24,6 +24,9 @@ perform name-based discovery.
 ## Use and ownership
 
 ```cpp
+#include "plugin_loader.h"
+#include "forwarding_engine.h"
+
 nixl::fault::pluginLoader plugin("/opt/nixl/real/libplugin_UCX.so");
 nixl::fault::forwardingEngine proxy(&params, plugin.createEngine(&params));
 ```
@@ -41,8 +44,10 @@ A null parameter map is valid; a null `params` pointer is rejected.
 from the genuine plugin. Keep the loader alive while using those pointers;
 copy them into `std::string` if ownership is needed.
 
-The shared `nixl::fault::engine_ptr_t` passes directly into `forwardingEngine`.
-It calls the plugin's `destroy_engine` callback and retains library
+The shared `nixl::fault::engine_ptr_t` in `engine_ptr.h` passes directly into
+`forwardingEngine`. Include `forwarding_engine.h` when using the wrapper;
+`plugin_loader.h` includes only the engine ownership header.
+The pointer calls the plugin's `destroy_engine` callback and retains library
 ownership, so engines can outlive the loader. Resetting the pointer destroys the
 engine; its deleter retains ownership until the pointer itself is destroyed.
 The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Cleanup exceptions
@@ -84,9 +89,12 @@ failed factories must clean up partial engine allocations.
 
 ## Build and tests
 
-The `nixl_plugin_loader` static library builds independently of tests, including
-when `build_tests=false`. In-tree consumers use `nixl_plugin_loader_dep` to inherit
-its headers and link dependencies. Loader tests link the same library.
+The `nixl_plugin_loader` static library builds when `build_fault_injection=true`
+or a test target needs it. With `build_tests=false` and the default
+`build_fault_injection=false`, the loader is excluded. In-tree
+consumers use `nixl_plugin_loader_dep` to inherit its headers and link dependencies.
+Loader tests link the same library; `build_fault_injection=true` also builds it
+without tests or Google Test/Mock.
 
 With NIXL build dependencies and Google Test/Mock:
 
