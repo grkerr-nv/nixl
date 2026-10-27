@@ -17,89 +17,13 @@
 #ifndef NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 #define NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 
-#include "backend/backend_engine.h"
-#include "common/nixl_log.h"
+#include "engine_ptr.h"
 
-#include <dlfcn.h>
-#include <exception>
-#include <memory>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 namespace nixl::fault {
-
-// Plugin ownership keeps its callbacks valid through engine destruction.
-class engineDeleter {
-public:
-    using destroy_t = void (*)(nixlBackendEngine *);
-
-    // Engines a plugin created. Destroy through its callback, not operator delete.
-    engineDeleter(destroy_t destroy, std::shared_ptr<void> plugin_owner)
-        : destroy_(destroy),
-          pluginOwner_(std::move(plugin_owner)) {
-        if (!destroy_ || !pluginOwner_) {
-            throw std::invalid_argument("A plugin destroy callback and shared owner are required");
-        }
-    }
-
-    // Engines the caller allocated directly, including mocks. Never adopt a plugin
-    // engine with this: operator delete is not the plugin's deleter, and nothing
-    // keeps the plugin loaded through destruction.
-    static engineDeleter
-    forOwnedEngine() {
-        return engineDeleter(deleteEngine);
-    }
-
-    void
-    operator()(nixlBackendEngine *engine) const noexcept {
-        try {
-            destroy_(engine);
-        }
-        catch (const std::exception &error) {
-            NIXL_ERROR << "Backend engine destruction threw in '" << getPluginPath()
-                       << "': " << error.what();
-        }
-        catch (...) {
-            NIXL_ERROR << "Backend engine destruction threw in '" << getPluginPath()
-                       << "': unknown exception";
-        }
-    }
-
-private:
-    // Ownerless construction, reachable only through forOwnedEngine(). Private because a
-    // deleter without a plugin owner is safe for exactly one case; the public API names
-    // both choices so neither is picked by default.
-    explicit engineDeleter(destroy_t destroy) : destroy_(destroy) {}
-
-    // Cleanup for directly allocated engines; plugin engines use their callback.
-    static void
-    deleteEngine(nixlBackendEngine *engine) {
-        delete engine;
-    }
-
-    // Copy the path; dli_fname is owned by the loader and freed on unload.
-    std::string
-    getPluginPath() const {
-        Dl_info info{};
-        if (dladdr(reinterpret_cast<void *>(destroy_), &info) && info.dli_fname) {
-            return std::string(info.dli_fname);
-        }
-        return "unknown plugin";
-    }
-
-    destroy_t destroy_;
-    // Released after unique_ptr invokes the callback; the owner finalizes/unloads the plugin.
-    std::shared_ptr<void> pluginOwner_;
-};
-
-using engine_ptr_t = std::unique_ptr<nixlBackendEngine, engineDeleter>;
-
-// Every engine pointer names how its engine dies. Without this, a default-constructed
-// deleter could adopt a plugin engine and operator delete it with the plugin unloaded.
-static_assert(!std::is_default_constructible_v<engine_ptr_t>,
-              "engine_ptr_t must carry an explicitly chosen destroy callback");
 
 // Owns an initialized engine; opaque handles remain owned by that engine.
 // Base-class getters expose a snapshot of initialization state. The nonvirtual
