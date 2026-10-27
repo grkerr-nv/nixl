@@ -51,6 +51,35 @@ ask for its location rather than guessing the design.
   rebasing feature branches. Rebase feature PRs onto published
   `origin/nixl-resiliency`, never directly onto `main`.
 
+### `#UPDATE_BRANCHES`
+
+When the user sends `#UPDATE_BRANCHES`, run the full synchronization below,
+including checks and pushes, without asking for the routine steps again.
+The user may name a subset of feature branches; otherwise include active
+resiliency PR branches and their dependency branches. Query PRs explicitly in
+`grkerr-nv/nixl`, since GitHub CLI may otherwise select upstream.
+
+1. Record the starting branch, inspect worktrees and local/remote divergence,
+   and preserve all local work. Fetch `upstream` and `origin`. Record the fetched
+   remote tips for push leases and create local backup refs before rewriting
+   feature branches. Do not discard divergent commits or touch backup branches.
+2. Fast-forward `main` to `origin/main` and `upstream/main`, then push it to
+   `origin`. Inspect any divergence instead of resetting or force-pushing.
+3. Fast-forward `nixl-resiliency` to `origin/nixl-resiliency`, merge `main` with
+   sign-off, resolve conflicts, and run relevant checks. Push integration before
+   rebasing feature branches. Never rebase or force-push either shared branch.
+4. Rebase independent feature branches onto published `origin/nixl-resiliency`.
+   Update stacked branches in dependency order, replaying only their own work
+   onto the updated parent with `--onto` when needed. Preserve meaningful merge
+   resolutions and the PR stack; do not replay obsolete dependency copies.
+   Reuse new upstream functionality instead of retaining local substitutes.
+5. Review each resulting PR diff and conflict resolution. Run focused checks
+   for affected behavior, then publish rebased branches to `origin` using
+   `--force-with-lease=refs/heads/<branch>:<recorded-remote-tip>`. Stop on a stale
+   lease and inspect the new remote work. Never push to `upstream`.
+6. Restore the starting branch and report updated branches, checks, and any
+   remaining limitations. Keep the working tree clean.
+
 Configure the remote once if it is absent:
 
 ```bash
