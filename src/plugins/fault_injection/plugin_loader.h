@@ -18,7 +18,7 @@
 #ifndef NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
 #define NIXL_SRC_PLUGINS_FAULT_INJECTION_PLUGIN_LOADER_H
 
-#include "forwarding_engine.h"
+#include "engine_ptr.h"
 
 #include <filesystem>
 #include <memory>
