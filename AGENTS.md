@@ -167,6 +167,9 @@ Remove local substitutes when upstream now provides the same functionality.
   available; otherwise use the concise style described here.
 - Lead with the change or result. Use short, direct sentences. Cut filler,
   repeated context, and unnecessary narration.
+- Keep pull request descriptions simple and focused on what the PR does. Omit
+  test counts, test-run details, extra metadata, and unnecessary justification
+  unless the user explicitly requests them.
 - Keep the details needed to understand behavior, rationale, validation, and
   blockers. Brevity must preserve technical accuracy and clarity.
 - Write short, imperative commit subjects. Add a body only when the reason,
