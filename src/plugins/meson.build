@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-subdir('fault_injection')
+if get_option('build_fault_injection') or get_option('build_tests')
+    subdir('fault_injection')
+endif
 
 if enabled_plugins.get('UCX')
     if not ucx_dep.found() and is_explicit_enable
