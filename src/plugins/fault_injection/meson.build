@@ -17,6 +17,7 @@ plugin_loader_lib = static_library('nixl_plugin_loader',
     'plugin_loader.cpp',
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep],
+    build_by_default: get_option('build_fault_injection'),
     pic: true)
 
 nixl_plugin_loader_dep = declare_dependency(
