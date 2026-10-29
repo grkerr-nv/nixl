@@ -70,6 +70,12 @@ requires a unique `id`, `method`, `inject_on_occurrence`, and `status`.
 `inject_on_occurrence` must be an integer from 1 through 9223372036854775807,
 the upper bound of TOML's signed 64-bit integer range. File order is preserved.
 
+Rules must not overlap. Two rules naming the same `method` and
+`inject_on_occurrence` are rejected when their operations intersect, so no call
+can match more than one rule. The evaluator therefore needs no precedence order,
+and a configuration cannot hide a rule behind an earlier one. Rules on distinct
+methods, occurrences, or transfer directions remain independent.
+
 `method` names a status-returning `nixlBackendEngine` virtual method:
 
 - `registerMem`, `deregisterMem`, `connect`, `disconnect`, `unloadMD`.
@@ -79,14 +85,15 @@ the upper bound of TOML's signed 64-bit integer range. File order is preserved.
 
 `prepMemView` selects both overloads. Optional `operation` accepts `NIXL_READ` or
 `NIXL_WRITE` only for methods with an explicit operation argument: `prepXfer`,
-`postXfer`, and `estimateXferCost`. Methods receiving only an opaque request
-handle do not expose an operation to this configuration model.
+`postXfer`, and `estimateXferCost`. An omitted `operation` matches both transfer
+directions. Methods receiving only an opaque request handle do not expose an
+operation to this configuration model.
 
 `status` accepts every current symbolic `nixl_status_t` value, including all
 12 error statuses, `NIXL_SUCCESS`, and `NIXL_IN_PROG`. Numeric statuses are rejected.
 Unknown keys at the document, section, or rule level are rejected. Invalid
-field types, unknown symbols, duplicate rule IDs, and invalid occurrence numbers
-raise `std::invalid_argument` with field and rule-index context. Invalid TOML
+field types, unknown symbols, duplicate rule IDs, overlapping rules, and invalid
+occurrence numbers raise `std::invalid_argument` with field and rule-index context. Invalid TOML
 also raises `std::invalid_argument`, with the parser's source location. File
 access failures raise `std::runtime_error`; schema errors loaded from a file
 include its path.

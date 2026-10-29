@@ -183,6 +183,35 @@ TEST(faultConfigTest, RejectsUnknownKeysAndDuplicateRuleIds) {
                   "fault_injection.rules[1].id: duplicate rule ID");
 }
 
+TEST(faultConfigTest, RejectsRulesThatCanMatchTheSameCall) {
+    // rule_text targets postXfer, NIXL_WRITE, occurrence 1. Omitting the operation covers
+    // both directions, so the second rule can match the same call.
+    const std::string base = std::string(config_text) + std::string(rule_text);
+    expectInvalid(base + R"([[fault_injection.rules]]
+id = "any-direction"
+method = "postXfer"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+)",
+                  "fault_injection.rules[1]: overlaps rule 'fail-first-post'");
+
+    // A disjoint operation and a later occurrence stay independent.
+    const auto config = faultConfig::parse(base + R"([[fault_injection.rules]]
+id = "other-direction"
+method = "postXfer"
+operation = "NIXL_READ"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+[[fault_injection.rules]]
+id = "second-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 2
+status = "NIXL_ERR_CANCELED"
+)");
+    EXPECT_EQ(config.getRules().size(), 3U);
+}
+
 TEST(faultConfigTest, AllowsOperationOnlyOnMethodsWithAnOperationArgument) {
     for (const auto method : {"prepXfer", "postXfer", "estimateXferCost", "checkXfer", "connect"}) {
         SCOPED_TRACE(method);

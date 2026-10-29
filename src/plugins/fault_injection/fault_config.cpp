@@ -208,6 +208,14 @@ namespace {
         return rule;
     }
 
+    // Two rules can match the same call when they name the same method and occurrence and
+    // their operations intersect. An omitted operation covers both transfer directions.
+    bool
+    overlaps(const faultRule &left, const faultRule &right) {
+        return left.method == right.method && left.injectOnOccurrence == right.injectOnOccurrence &&
+            (!left.operation || !right.operation || *left.operation == *right.operation);
+    }
+
     std::vector<faultRule>
     parseRules(const tableScope &section) {
         std::vector<faultRule> rules;
@@ -228,6 +236,14 @@ namespace {
             auto rule = parseRule(section.child(*table, element));
             if (!identifiers.insert(rule.id).second) {
                 section.reject(element + ".id", "duplicate rule ID '" + rule.id + "'");
+            }
+            const auto conflict =
+                std::find_if(rules.begin(), rules.end(), [&rule](const faultRule &earlier) {
+                    return overlaps(rule, earlier);
+                });
+            if (conflict != rules.end()) {
+                section.reject(element,
+                               "overlaps rule '" + conflict->id + "': same method and occurrence");
             }
             rules.push_back(std::move(rule));
         }
