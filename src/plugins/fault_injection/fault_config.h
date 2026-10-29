@@ -59,10 +59,10 @@ enum class backend_method_t {
  */
 struct faultRule {
     std::string id;
-    backend_method_t method;
+    backend_method_t method{};
     std::optional<nixl_xfer_op_t> operation;
-    uint64_t injectOnOccurrence;
-    nixl_status_t status;
+    uint64_t injectOnOccurrence{};
+    nixl_status_t status{};
 };
 
 /** Owns a validated configuration snapshot without loading plugins or evaluating rules.

@@ -23,7 +23,8 @@ helper for the planned fault-injection proxy. It forwards every current
 memory-view overloads.
 
 See [fault configuration](fault_config.md) for the parsed configuration and
-status-rule schema used by the planned proxy.
+status-rule schema used by the planned proxy, and [plugin loading](plugin_loader.md)
+for loading a genuine backend by path.
 
 ## Ownership and use
 
@@ -77,9 +78,9 @@ reads the wrapper's own empty queue. No backend currently calls
 `addTelemetryEvent`, and core does not call `getTelemetryEvents`. If that changes,
 drain the genuine engine's public `getTelemetryEvents()` into the wrapper queue.
 
-Plugin loading, plugin-level identity, rule evaluation, injection, and overhead
-measurement remain separate work. Functional tests do not prove the design's
-statistical non-perturbation requirement.
+Plugin-level identity, rule evaluation, injection, and overhead measurement
+remain separate work. Functional tests do not prove the design's statistical
+non-perturbation requirement.
 
 ## Validation
 
