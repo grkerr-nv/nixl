@@ -61,7 +61,23 @@ struct faultRule {
     nixl_status_t status;
 };
 
-/** Owns a validated configuration snapshot without loading plugins or evaluating rules. */
+/** Owns a validated configuration snapshot without loading plugins or evaluating rules.
+ *
+ * Example configuration targeting the first postXfer write:
+ * @code{.toml}
+ * [fault_injection]
+ * schema_version = 1
+ * experiment_id = "fail-first-write"
+ * real_plugin_path = "/usr/lib/nixl/plugins/libplugin_UCX.so"
+ *
+ * [[fault_injection.rules]]
+ * id = "first-write"
+ * method = "postXfer"
+ * operation = "NIXL_WRITE"
+ * inject_on_occurrence = 1
+ * status = "NIXL_ERR_BACKEND"
+ * @endcode
+ */
 class faultConfig {
 public:
     /** Parse schema version 1. Throws std::invalid_argument for invalid TOML or schema. */
