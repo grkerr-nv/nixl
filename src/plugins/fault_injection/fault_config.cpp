@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace nixl::fault {
 namespace {
@@ -75,143 +76,215 @@ namespace {
         {"NIXL_WRITE", NIXL_WRITE},
     };
 
-    [[noreturn]] void
-    invalidField(const std::string &field, std::string_view reason) {
-        throw std::invalid_argument(field + ": " + std::string(reason));
-    }
+    // One TOML table plus the dotted field path that prefixes its error messages. Every
+    // accessor validates and throws, so callers read as a list of schema requirements.
+    class tableScope {
+    public:
+        tableScope(const toml::table &table, std::string path)
+            : table_(table),
+              path_(std::move(path)) {}
 
-    void
-    checkKeys(const toml::table &table,
-              std::initializer_list<std::string_view> allowed,
-              const std::string &context) {
-        for (const auto &[key, value] : table) {
-            if (std::find(allowed.begin(), allowed.end(), key.str()) == allowed.end()) {
-                invalidField(context + std::string(key.str()), "unknown key");
+        // Scope for a nested table, extending this path with key.
+        tableScope
+        child(const toml::table &table, std::string_view key) const {
+            return tableScope(table, qualify(key) + ".");
+        }
+
+        [[noreturn]] void
+        reject(std::string_view key, std::string_view reason) const {
+            throw std::invalid_argument(qualify(key) + ": " + std::string(reason));
+        }
+
+        void
+        rejectUnknownKeys(std::initializer_list<std::string_view> allowed) const {
+            for (const auto &[key, value] : table_) {
+                if (std::find(allowed.begin(), allowed.end(), key.str()) == allowed.end()) {
+                    reject(key.str(), "unknown key");
+                }
             }
         }
-    }
 
-    std::string
-    requiredString(const toml::table &table, std::string_view key, const std::string &context) {
-        const auto value = table[key].value<std::string>();
-        if (!value || value->empty() || value->find('\0') != std::string::npos) {
-            invalidField(context + std::string(key), "must be a nonempty string without NUL bytes");
+        bool
+        contains(std::string_view key) const {
+            return table_.contains(key);
         }
-        return *value;
-    }
 
-    template<typename valueType, size_t size>
-    valueType
-    parseSymbol(const std::string &value,
-                const std::pair<std::string_view, valueType> (&symbols)[size],
-                const std::string &field) {
-        for (const auto &[name, result] : symbols) {
-            if (value == name) {
-                return result;
+        toml::node_view<const toml::node>
+        operator[](std::string_view key) const {
+            return table_[key];
+        }
+
+        std::string
+        requiredString(std::string_view key) const {
+            const auto value = table_[key].value<std::string>();
+            if (!value) {
+                reject(key, contains(key) ? "must be a string" : "is required");
             }
+            if (value->empty() || value->find('\0') != std::string::npos) {
+                reject(key, "must be a nonempty string without NUL bytes");
+            }
+            return *value;
         }
-        invalidField(field, "unknown value '" + value + "'");
+
+        int64_t
+        requiredInteger(std::string_view key) const {
+            if (!table_[key].is_integer()) {
+                reject(key, contains(key) ? "must be an integer" : "is required");
+            }
+            return *table_[key].value<int64_t>();
+        }
+
+        uint64_t
+        positiveInteger(std::string_view key) const {
+            const auto value = requiredInteger(key);
+            if (value <= 0) {
+                reject(key, "must be a positive integer");
+            }
+            return static_cast<uint64_t>(value);
+        }
+
+        // Map a required string field onto one of symbols, reporting the accepted names.
+        template<typename valueType, size_t size>
+        valueType
+        requiredSymbol(std::string_view key,
+                       const std::pair<std::string_view, valueType> (&symbols)[size]) const {
+            const auto value = requiredString(key);
+            for (const auto &[name, result] : symbols) {
+                if (value == name) {
+                    return result;
+                }
+            }
+            std::string accepted;
+            for (const auto &[name, result] : symbols) {
+                accepted += accepted.empty() ? "" : ", ";
+                accepted += name;
+            }
+            reject(key, "unknown value '" + value + "'; expected one of: " + accepted);
+        }
+
+    private:
+        std::string
+        qualify(std::string_view key) const {
+            return path_ + std::string(key);
+        }
+
+        const toml::table &table_;
+        std::string path_;
+    };
+
+    toml::table
+    parseDocument(std::string_view text) {
+        try {
+            return toml::parse(text);
+        }
+        catch (const toml::parse_error &error) {
+            std::ostringstream message;
+            message << "Invalid fault configuration TOML: " << error;
+            throw std::invalid_argument(message.str());
+        }
+    }
+
+    // Opaque request handles expose no transfer operation; these methods take one directly.
+    bool
+    carriesOperation(backend_method_t method) {
+        return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
+            method == backend_method_t::ESTIMATE_XFER_COST;
     }
 
     faultRule
-    parseRule(const toml::table &table, const std::string &context) {
-        checkKeys(table, {"id", "method", "operation", "inject_on_occurrence", "status"}, context);
+    parseRule(const tableScope &fields) {
+        fields.rejectUnknownKeys({"id", "method", "operation", "inject_on_occurrence", "status"});
         faultRule rule;
-        rule.id = requiredString(table, "id", context);
-        rule.method =
-            parseSymbol(requiredString(table, "method", context), methods, context + "method");
-        rule.status =
-            parseSymbol(requiredString(table, "status", context), statuses, context + "status");
-        const auto occurrence = table["inject_on_occurrence"];
-        if (!occurrence.is_integer() || occurrence.value<int64_t>().value() <= 0) {
-            invalidField(context + "inject_on_occurrence", "must be a positive integer");
-        }
-        rule.injectOnOccurrence = static_cast<uint64_t>(*occurrence.value<int64_t>());
-        if (table.contains("operation")) {
-            rule.operation = parseSymbol(
-                requiredString(table, "operation", context), operations, context + "operation");
-            // These methods carry an operation directly; opaque request handles do not expose one.
-            if (rule.method != backend_method_t::PREP_XFER &&
-                rule.method != backend_method_t::POST_XFER &&
-                rule.method != backend_method_t::ESTIMATE_XFER_COST) {
-                invalidField(context + "operation", "method has no transfer operation argument");
+        rule.id = fields.requiredString("id");
+        rule.method = fields.requiredSymbol("method", methods);
+        rule.status = fields.requiredSymbol("status", statuses);
+        rule.injectOnOccurrence = fields.positiveInteger("inject_on_occurrence");
+        if (fields.contains("operation")) {
+            if (!carriesOperation(rule.method)) {
+                fields.reject("operation", "method has no transfer operation argument");
             }
+            rule.operation = fields.requiredSymbol("operation", operations);
         }
         return rule;
+    }
+
+    std::vector<faultRule>
+    parseRules(const tableScope &section) {
+        std::vector<faultRule> rules;
+        if (!section["rules"]) {
+            return rules;
+        }
+        const auto *array = section["rules"].as_array();
+        if (array == nullptr) {
+            section.reject("rules", "must be an array of tables");
+        }
+        std::unordered_set<std::string> identifiers;
+        for (size_t index = 0; index < array->size(); ++index) {
+            const auto element = "rules[" + std::to_string(index) + "]";
+            const auto *table = (*array)[index].as_table();
+            if (table == nullptr) {
+                section.reject(element, "must be a table");
+            }
+            auto rule = parseRule(section.child(*table, element));
+            if (!identifiers.insert(rule.id).second) {
+                section.reject(element + ".id", "duplicate rule ID '" + rule.id + "'");
+            }
+            rules.push_back(std::move(rule));
+        }
+        return rules;
+    }
+
+    std::string
+    readFile(const std::filesystem::path &path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("Cannot open fault configuration: " + path.string());
+        }
+        std::string text;
+        try {
+            text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        }
+        catch (const std::ios_base::failure &error) {
+            throw std::runtime_error("Cannot read fault configuration: " + path.string() + ": " +
+                                     error.what());
+        }
+        if (file.bad()) {
+            throw std::runtime_error("Cannot read fault configuration: " + path.string());
+        }
+        return text;
     }
 
 } // namespace
 
 faultConfig
 faultConfig::parse(std::string_view text) {
-    toml::table document;
-    try {
-        document = toml::parse(text);
+    const auto document = parseDocument(text);
+    const tableScope root(document, "");
+    root.rejectUnknownKeys({"fault_injection"});
+    const auto *table = document["fault_injection"].as_table();
+    if (table == nullptr) {
+        root.reject("fault_injection", "must be a table");
     }
-    catch (const toml::parse_error &error) {
-        std::ostringstream message;
-        message << "Invalid fault configuration TOML: " << error;
-        throw std::invalid_argument(message.str());
+
+    const auto section = root.child(*table, "fault_injection");
+    section.rejectUnknownKeys({"schema_version", "experiment_id", "real_plugin_path", "rules"});
+    if (section.requiredInteger("schema_version") != 1) {
+        section.reject("schema_version", "must be integer 1");
     }
-    checkKeys(document, {"fault_injection"}, "");
-    const auto *section = document["fault_injection"].as_table();
-    if (!section) {
-        invalidField("fault_injection", "must be a table");
-    }
-    const std::string context = "fault_injection.";
-    checkKeys(*section, {"schema_version", "experiment_id", "real_plugin_path", "rules"}, context);
-    const auto version = (*section)["schema_version"];
-    if (!version.is_integer() || version.value<int64_t>() != 1) {
-        invalidField(context + "schema_version", "must be integer 1");
-    }
+
     faultConfig config;
-    config.experimentId_ = requiredString(*section, "experiment_id", context);
-    const auto path = requiredString(*section, "real_plugin_path", context);
-    config.realPluginPath_ = path;
+    config.experimentId_ = section.requiredString("experiment_id");
+    config.realPluginPath_ = section.requiredString("real_plugin_path");
     if (!config.realPluginPath_.is_absolute()) {
-        invalidField(context + "real_plugin_path", "must be an absolute path");
+        section.reject("real_plugin_path", "must be an absolute path");
     }
-    const auto rules = (*section)["rules"];
-    if (!rules) {
-        return config;
-    }
-    const auto *array = rules.as_array();
-    if (!array) {
-        invalidField(context + "rules", "must be an array of tables");
-    }
-    std::unordered_set<std::string> identifiers;
-    for (size_t index = 0; index < array->size(); ++index) {
-        const auto location = context + "rules[" + std::to_string(index) + "].";
-        const auto *table = (*array)[index].as_table();
-        if (!table) {
-            invalidField(context + "rules[" + std::to_string(index) + "]", "must be a table");
-        }
-        auto rule = parseRule(*table, location);
-        if (!identifiers.insert(rule.id).second) {
-            invalidField(location + "id", "duplicate rule ID '" + rule.id + "'");
-        }
-        config.rules_.push_back(std::move(rule));
-    }
+    config.rules_ = parseRules(section);
     return config;
 }
 
 faultConfig
 faultConfig::load(const std::filesystem::path &path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Cannot open fault configuration: " + path.string());
-    }
-    std::string text;
-    try {
-        text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    }
-    catch (const std::ios_base::failure &error) {
-        throw std::runtime_error("Cannot read fault configuration: " + path.string() + ": " +
-                                 error.what());
-    }
-    if (file.bad()) {
-        throw std::runtime_error("Cannot read fault configuration: " + path.string());
-    }
+    const auto text = readFile(path);
     try {
         return parse(text);
     }
