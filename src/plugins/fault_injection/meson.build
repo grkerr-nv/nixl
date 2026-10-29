@@ -24,3 +24,14 @@ nixl_plugin_loader_dep = declare_dependency(
     link_with: plugin_loader_lib,
     include_directories: [nixl_inc_dirs, utils_inc_dirs, include_directories('.')],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep])
+
+fault_config_lib = static_library('nixl_fault_config',
+    'fault_config.cpp',
+    include_directories: nixl_inc_dirs,
+    dependencies: tomlplusplus_dep,
+    build_by_default: get_option('build_fault_injection'),
+    pic: true)
+
+nixl_fault_config_dep = declare_dependency(
+    link_with: fault_config_lib,
+    include_directories: [nixl_inc_dirs, include_directories('.')])
