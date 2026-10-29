@@ -134,11 +134,14 @@ TEST(faultConfigTest, RejectsInvalidStructureAndTypesWithFieldContext) {
         {"schema_version = 1", ""},
         {"experiment_id = \"first-write\"", "experiment_id = \"\""},
         {"experiment_id = \"first-write\"", "experiment_id = 1"},
+        {"experiment_id = \"first-write\"", "experiment_id = \"two\\nlines\""},
         {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
          "real_plugin_path = 'relative.so'"},
         {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"", "real_plugin_path = \"\""},
         {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
          "real_plugin_path = \"/tmp/a\\u0000b\""},
+        {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
+         "real_plugin_path = \"/not-installed/\""},
     };
     for (const auto &[original, replacement] : replacements) {
         SCOPED_TRACE(replacement);
@@ -152,6 +155,7 @@ TEST(faultConfigTest, RejectsInvalidRuleFieldsWithRuleIndex) {
     const std::pair<std::string_view, std::string_view> replacements[] = {
         {"id = \"fail-first-post\"", "id = \"\""},
         {"id = \"fail-first-post\"", "id = 1"},
+        {"id = \"fail-first-post\"", "id = \"two\\nlines\""},
         {"method = \"postXfer\"", "method = \"unknownMethod\""},
         {"method = \"postXfer\"", "method = \"releaseMemView\""},
         {"operation = \"NIXL_WRITE\"", "operation = \"WRITE\""},
@@ -219,9 +223,20 @@ TEST(faultConfigTest, AllowsOperationOnlyOnMethodsWithAnOperationArgument) {
         text.replace(text.find("postXfer"), std::string_view("postXfer").size(), method);
         if (std::string_view(method) == "checkXfer" || std::string_view(method) == "connect") {
             expectInvalid(text, "fault_injection.rules[0].operation");
-        } else {
-            EXPECT_EQ(faultConfig::parse(text).getRules()[0].operation, NIXL_WRITE);
+            continue;
         }
+        const auto config = faultConfig::parse(text);
+        ASSERT_EQ(config.getRules().size(), 1U);
+        EXPECT_EQ(config.getRules()[0].operation, NIXL_WRITE);
+
+        // Omitting the operation matches both directions, which is what makes two
+        // otherwise distinct rules overlap.
+        std::string omitted = text;
+        omitted.erase(omitted.find("operation ="),
+                      std::string_view("operation = \"NIXL_WRITE\"\n").size());
+        const auto wildcard = faultConfig::parse(omitted);
+        ASSERT_EQ(wildcard.getRules().size(), 1U);
+        EXPECT_FALSE(wildcard.getRules()[0].operation.has_value());
     }
 }
 

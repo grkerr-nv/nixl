@@ -25,6 +25,7 @@
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -109,9 +110,18 @@ namespace {
             return table_.contains(key);
         }
 
-        toml::node_view<const toml::node>
-        operator[](std::string_view key) const {
-            return table_[key];
+        // Null when the key is absent, so callers distinguish an omitted array from a
+        // malformed one without reaching for the underlying table.
+        const toml::array *
+        optionalArray(std::string_view key) const {
+            if (!contains(key)) {
+                return nullptr;
+            }
+            const auto *array = table_[key].as_array();
+            if (array == nullptr) {
+                reject(key, "must be an array of tables");
+            }
+            return array;
         }
 
         std::string
@@ -120,8 +130,13 @@ namespace {
             if (!value) {
                 reject(key, contains(key) ? "must be a string" : "is required");
             }
-            if (value->empty() || value->find('\0') != std::string::npos) {
-                reject(key, "must be a nonempty string without NUL bytes");
+            // Control bytes would corrupt the error messages and logs that carry these values.
+            const auto control = [](char character) {
+                const auto byte = static_cast<unsigned char>(character);
+                return byte < 0x20 || byte == 0x7F;
+            };
+            if (value->empty() || std::any_of(value->begin(), value->end(), control)) {
+                reject(key, "must be a nonempty string without control characters");
             }
             return *value;
         }
@@ -219,12 +234,9 @@ namespace {
     std::vector<faultRule>
     parseRules(const tableScope &section) {
         std::vector<faultRule> rules;
-        if (!section["rules"]) {
-            return rules;
-        }
-        const auto *array = section["rules"].as_array();
+        const auto *array = section.optionalArray("rules");
         if (array == nullptr) {
-            section.reject("rules", "must be an array of tables");
+            return rules;
         }
         std::unordered_set<std::string> identifiers;
         for (size_t index = 0; index < array->size(); ++index) {
@@ -256,18 +268,23 @@ namespace {
         if (!file) {
             throw std::runtime_error("Cannot open fault configuration: " + path.string());
         }
-        std::string text;
+        // Opening a directory succeeds on common platforms, and only reading it fails.
+        // std::istreambuf_iterator reads the stream buffer directly and never sets the
+        // stream's own error bits, so checking file.bad() afterwards would miss that on
+        // some standard libraries. Reject anything that is not a regular file instead.
+        std::error_code status;
+        if (!std::filesystem::is_regular_file(path, status)) {
+            throw std::runtime_error("Not a regular file, cannot read fault configuration: " +
+                                     path.string());
+        }
         try {
-            text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            return std::string(std::istreambuf_iterator<char>(file),
+                               std::istreambuf_iterator<char>());
         }
         catch (const std::ios_base::failure &error) {
             throw std::runtime_error("Cannot read fault configuration: " + path.string() + ": " +
                                      error.what());
         }
-        if (file.bad()) {
-            throw std::runtime_error("Cannot read fault configuration: " + path.string());
-        }
-        return text;
     }
 
 } // namespace
@@ -293,6 +310,9 @@ faultConfig::parse(std::string_view text) {
     config.realPluginPath_ = section.requiredString("real_plugin_path");
     if (!config.realPluginPath_.is_absolute()) {
         section.reject("real_plugin_path", "must be an absolute path");
+    }
+    if (!config.realPluginPath_.has_filename()) {
+        section.reject("real_plugin_path", "must name a file, not a directory");
     }
     config.rules_ = parseRules(section);
     return config;

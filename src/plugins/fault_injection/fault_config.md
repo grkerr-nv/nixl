@@ -62,8 +62,9 @@ status = "NIXL_ERR_BACKEND"
 
 `schema_version`, `experiment_id`, and `real_plugin_path` are required.
 `schema_version` must be integer `1`. IDs and paths must be nonempty strings
-without NUL bytes. `real_plugin_path` must be absolute; its existence and plugin
-validity are checked by the loader, not by this parser.
+without control characters, since those values appear in error messages and logs.
+`real_plugin_path` must be absolute and must name a file rather than a directory;
+its existence and plugin validity are checked by the loader, not by this parser.
 
 `rules` may be omitted or set to `[]` for an inert configuration. Each rule
 requires a unique `id`, `method`, `inject_on_occurrence`, and `status`.
@@ -75,6 +76,13 @@ Rules must not overlap. Two rules naming the same `method` and
 can match more than one rule. The evaluator therefore needs no precedence order,
 and a configuration cannot hide a rule behind an earlier one. Rules on distinct
 methods, occurrences, or transfer directions remain independent.
+
+Each rule therefore targets exactly one occurrence. Repeated, counted, or
+probabilistic injection, and selectors beyond `method` and `operation` such as a
+remote agent name or memory type, are not expressible in schema version 1. A
+later schema may add them as new optional rule keys, which this parser already
+rejects as unknown keys today. Relaxing the non-overlap rule would also require
+defining a precedence order, so prefer selectors that keep rules disjoint.
 
 `method` names a status-returning `nixlBackendEngine` virtual method:
 
@@ -91,12 +99,17 @@ operation to this configuration model.
 
 `status` accepts every current symbolic `nixl_status_t` value, including all
 12 error statuses, `NIXL_SUCCESS`, and `NIXL_IN_PROG`. Numeric statuses are rejected.
-Unknown keys at the document, section, or rule level are rejected. Invalid
-field types, unknown symbols, duplicate rule IDs, overlapping rules, and invalid
-occurrence numbers raise `std::invalid_argument` with field and rule-index context. Invalid TOML
-also raises `std::invalid_argument`, with the parser's source location. File
-access failures raise `std::runtime_error`; schema errors loaded from a file
-include its path.
+Unknown keys at the document, section, or rule level are rejected. Invalid field
+types, unknown symbols, duplicate rule IDs, overlapping rules, and invalid
+occurrence numbers raise `std::invalid_argument` with field and rule-index
+context. Invalid TOML also raises `std::invalid_argument`, with the parser's
+source location.
+
+`load` raises `std::runtime_error` when the path is not a regular file or cannot
+be opened or read, and `std::invalid_argument` with the path prepended for every
+schema and TOML error. `std::invalid_argument` is a `std::logic_error`, so
+catching only `std::runtime_error` around `load` misses malformed configurations;
+catch `std::exception` to handle both.
 
 ## Scope and validation
 

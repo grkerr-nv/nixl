@@ -88,7 +88,12 @@ public:
     [[nodiscard]] static faultConfig
     parse(std::string_view text);
 
-    /** Read and parse one file. Throws std::runtime_error for file access failures. */
+    /** Read and parse one file.
+     *
+     * Throws std::runtime_error for file access failures, and std::invalid_argument for
+     * invalid TOML or schema, with the path prepended. Catching only std::runtime_error
+     * therefore misses every malformed configuration; catch std::exception to cover both.
+     */
     [[nodiscard]] static faultConfig
     load(const std::filesystem::path &path);
 
