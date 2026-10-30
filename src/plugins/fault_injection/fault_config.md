@@ -31,10 +31,8 @@ const auto &experiment_id = config.getExperimentId();
 const auto &rules = config.getRules();
 ```
 
-`parse` and `load` validate identically and return an independent snapshot: the
-source text or file may change or disappear afterwards. Accessors return const
-references valid for the configuration's lifetime. Occurrence counters and
-spent-rule state belong to the evaluator, not to the parsed configuration.
+`parse` takes TOML text instead of a path. Both copy what they need, so the
+source can change or disappear afterwards.
 
 The eventual proxy selects the file through `NIXL_FAULT_CONFIG_FILE` and retains
 one snapshot during initialization.
