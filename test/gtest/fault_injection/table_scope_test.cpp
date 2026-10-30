@@ -50,16 +50,16 @@ TEST(tableScopeTest, QualifiesKeysWithTheAccumulatedPath) {
 [section.nested]
 )");
     const tableScope root(document, "");
-    EXPECT_EQ(rejection([&] { root.reject("key", "reason"); }), "key: reason");
+    EXPECT_EQ(rejection([&] { root.rejectAndThrow("key", "reason"); }), "key: reason");
 
     const auto *section = document["section"].as_table();
     ASSERT_NE(section, nullptr);
     const auto scope = root.child(*section, "section");
-    EXPECT_EQ(rejection([&] { scope.reject("key", "reason"); }), "section.key: reason");
+    EXPECT_EQ(rejection([&] { scope.rejectAndThrow("key", "reason"); }), "section.key: reason");
 
     const auto *nested = (*section)["nested"].as_table();
     ASSERT_NE(nested, nullptr);
-    EXPECT_EQ(rejection([&] { scope.child(*nested, "nested").reject("key", "reason"); }),
+    EXPECT_EQ(rejection([&] { scope.child(*nested, "nested").rejectAndThrow("key", "reason"); }),
               "section.nested.key: reason");
 }
 
@@ -149,11 +149,14 @@ kept = 1
 surprise = 2
 )");
     const tableScope scope(document, "");
-    EXPECT_EQ(rejection([&] { scope.rejectUnknownKeys({"kept"}); }), "surprise: unknown key");
-    EXPECT_EQ(rejection([&] { scope.rejectUnknownKeys({"kept", "surprise"}); }), "<accepted>");
+    EXPECT_EQ(rejection([&] { scope.rejectUnknownKeysAndThrow({"kept"}); }),
+              "surprise: unknown key");
+    EXPECT_EQ(rejection([&] { scope.rejectUnknownKeysAndThrow({"kept", "surprise"}); }),
+              "<accepted>");
 
     const toml::table empty = toml::parse("");
-    EXPECT_EQ(rejection([&] { tableScope(empty, "").rejectUnknownKeys({}); }), "<accepted>");
+    EXPECT_EQ(rejection([&] { tableScope(empty, "").rejectUnknownKeysAndThrow({}); }),
+              "<accepted>");
 }
 
 } // namespace
