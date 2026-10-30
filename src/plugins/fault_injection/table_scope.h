@@ -107,8 +107,10 @@ tableScope::requiredSymbol(std::string_view key,
             return result;
         }
     }
+    // No match. Join every accepted symbol with commas so the error tells the user what
+    // to write instead. Reached only on the failure path.
     std::string accepted;
-    for (const auto &[name, result] : symbols) {
+    for (const auto &[name, ignored] : symbols) {
         accepted += accepted.empty() ? "" : ", ";
         accepted += name;
     }
