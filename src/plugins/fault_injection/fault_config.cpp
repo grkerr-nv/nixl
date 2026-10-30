@@ -100,7 +100,8 @@ namespace {
 
     faultRule
     parseRule(const tableScope &fields) {
-        fields.rejectUnknownKeys({"id", "method", "operation", "inject_on_occurrence", "status"});
+        fields.rejectUnknownKeysAndThrow(
+            {"id", "method", "operation", "inject_on_occurrence", "status"});
         faultRule rule;
         rule.id = fields.requiredString("id");
         rule.method = fields.requiredSymbol("method", methods);
@@ -108,7 +109,7 @@ namespace {
         rule.injectOnOccurrence = fields.positiveInteger("inject_on_occurrence");
         if (fields.contains("operation")) {
             if (!carriesOperation(rule.method)) {
-                fields.reject("operation", "method has no transfer operation argument");
+                fields.rejectAndThrow("operation", "method has no transfer operation argument");
             }
             rule.operation = fields.requiredSymbol("operation", operations);
         }
@@ -135,19 +136,19 @@ namespace {
             const auto element = "rules[" + std::to_string(index) + "]";
             const auto *table = (*array)[index].as_table();
             if (table == nullptr) {
-                section.reject(element, "must be a table");
+                section.rejectAndThrow(element, "must be a table");
             }
             auto rule = parseRule(section.child(*table, element));
             if (!identifiers.insert(rule.id).second) {
-                section.reject(element + ".id", "duplicate rule ID '" + rule.id + "'");
+                section.rejectAndThrow(element + ".id", "duplicate rule ID '" + rule.id + "'");
             }
             const auto conflict =
                 std::find_if(rules.begin(), rules.end(), [&rule](const faultRule &earlier) {
                     return overlaps(rule, earlier);
                 });
             if (conflict != rules.end()) {
-                section.reject(element,
-                               "overlaps rule '" + conflict->id + "': same method and occurrence");
+                section.rejectAndThrow(
+                    element, "overlaps rule '" + conflict->id + "': same method and occurrence");
             }
             rules.push_back(std::move(rule));
         }
@@ -185,26 +186,27 @@ faultConfig
 faultConfig::parse(std::string_view text) {
     const auto document = parseDocument(text);
     const tableScope root(document, "");
-    root.rejectUnknownKeys({"fault_injection"});
+    root.rejectUnknownKeysAndThrow({"fault_injection"});
     const auto *table = document["fault_injection"].as_table();
     if (table == nullptr) {
-        root.reject("fault_injection", "must be a table");
+        root.rejectAndThrow("fault_injection", "must be a table");
     }
 
     const auto section = root.child(*table, "fault_injection");
-    section.rejectUnknownKeys({"schema_version", "experiment_id", "real_plugin_path", "rules"});
+    section.rejectUnknownKeysAndThrow(
+        {"schema_version", "experiment_id", "real_plugin_path", "rules"});
     if (section.requiredInteger("schema_version") != 1) {
-        section.reject("schema_version", "must be integer 1");
+        section.rejectAndThrow("schema_version", "must be integer 1");
     }
 
     faultConfig config;
     config.experimentId_ = section.requiredString("experiment_id");
     config.realPluginPath_ = section.requiredString("real_plugin_path");
     if (!config.realPluginPath_.is_absolute()) {
-        section.reject("real_plugin_path", "must be an absolute path");
+        section.rejectAndThrow("real_plugin_path", "must be an absolute path");
     }
     if (!config.realPluginPath_.has_filename()) {
-        section.reject("real_plugin_path", "must name a file, not a directory");
+        section.rejectAndThrow("real_plugin_path", "must name a file, not a directory");
     }
     config.rules_ = parseRules(section);
     return config;

@@ -33,15 +33,15 @@ tableScope::child(const toml::table &table, std::string_view key) const {
 }
 
 void
-tableScope::reject(std::string_view key, std::string_view reason) const {
+tableScope::rejectAndThrow(std::string_view key, std::string_view reason) const {
     throw std::invalid_argument(qualify(key) + ": " + std::string(reason));
 }
 
 void
-tableScope::rejectUnknownKeys(std::initializer_list<std::string_view> allowed) const {
+tableScope::rejectUnknownKeysAndThrow(std::initializer_list<std::string_view> allowed) const {
     for (const auto &[key, value] : table_) {
         if (std::find(allowed.begin(), allowed.end(), key.str()) == allowed.end()) {
-            reject(key.str(), "unknown key");
+            rejectAndThrow(key.str(), "unknown key");
         }
     }
 }
@@ -58,7 +58,7 @@ tableScope::optionalArray(std::string_view key) const {
     }
     const auto *array = table_[key].as_array();
     if (array == nullptr) {
-        reject(key, "must be an array of tables");
+        rejectAndThrow(key, "must be an array of tables");
     }
     return array;
 }
@@ -67,7 +67,7 @@ std::string
 tableScope::requiredString(std::string_view key) const {
     const auto value = table_[key].value<std::string>();
     if (!value) {
-        reject(key, contains(key) ? "must be a string" : "is required");
+        rejectAndThrow(key, contains(key) ? "must be a string" : "is required");
     }
     // Control bytes would corrupt the error messages and logs that carry these values.
     // Testing bytes rather than std::iscntrl keeps this locale-independent and leaves
@@ -77,7 +77,7 @@ tableScope::requiredString(std::string_view key) const {
         return byte < 0x20 || byte == 0x7F;
     };
     if (value->empty() || std::any_of(value->begin(), value->end(), control)) {
-        reject(key, "must be a nonempty string without control characters");
+        rejectAndThrow(key, "must be a nonempty string without control characters");
     }
     return *value;
 }
@@ -85,7 +85,7 @@ tableScope::requiredString(std::string_view key) const {
 int64_t
 tableScope::requiredInteger(std::string_view key) const {
     if (!table_[key].is_integer()) {
-        reject(key, contains(key) ? "must be an integer" : "is required");
+        rejectAndThrow(key, contains(key) ? "must be an integer" : "is required");
     }
     return *table_[key].value<int64_t>();
 }
@@ -94,7 +94,7 @@ uint64_t
 tableScope::positiveInteger(std::string_view key) const {
     const auto value = requiredInteger(key);
     if (value <= 0) {
-        reject(key, "must be a positive integer");
+        rejectAndThrow(key, "must be a positive integer");
     }
     return static_cast<uint64_t>(value);
 }

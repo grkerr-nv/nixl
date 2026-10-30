@@ -51,11 +51,11 @@ public:
 
     /** Throw std::invalid_argument reading "<path><key>: <reason>". */
     [[noreturn]] void
-    reject(std::string_view key, std::string_view reason) const;
+    rejectAndThrow(std::string_view key, std::string_view reason) const;
 
     /** Reject the first key in this table that is not in allowed. */
     void
-    rejectUnknownKeys(std::initializer_list<std::string_view> allowed) const;
+    rejectUnknownKeysAndThrow(std::initializer_list<std::string_view> allowed) const;
 
     /** True when the key is present, whatever its type. */
     [[nodiscard]] bool
@@ -114,7 +114,7 @@ tableScope::requiredSymbol(std::string_view key,
         accepted += accepted.empty() ? "" : ", ";
         accepted += name;
     }
-    reject(key, "unknown value '" + value + "'; expected one of: " + accepted);
+    rejectAndThrow(key, "unknown value '" + value + "'; expected one of: " + accepted);
 }
 
 } // namespace nixl::fault
