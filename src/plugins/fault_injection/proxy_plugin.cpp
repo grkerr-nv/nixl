@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include "fault_config.h"
 #include "forwarding_engine.h"
 #include "plugin_loader.h"
 #include "backend/backend_plugin.h"
@@ -23,7 +24,6 @@
 
 #include <atomic>
 #include <cstdlib>
-#include <cstdint>
 #include <deque>
 #include <dlfcn.h>
 #include <filesystem>
@@ -59,38 +59,13 @@ readPluginPath() {
         throw std::invalid_argument(
             "NIXL_FAULT_CONFIG_FILE must specify real_plugin_path configuration");
     }
-    const auto config = toml::parse_file(file);
-    const auto section = config["fault_injection"];
-    const auto *table = section.as_table();
-    if (!table) {
-        throw std::invalid_argument("Missing [fault_injection] table");
+    const auto config = nixl::fault::faultConfig::load(file);
+    // The proxy forwards every call unchanged, so a rule it cannot execute must not look
+    // like it took effect.
+    if (!config.getRules().empty()) {
+        throw std::invalid_argument("Fault injection rules are not supported by the inert proxy");
     }
-    for (const auto &[key, value] : *table) {
-        const auto name = key.str();
-        if (name != "schema_version" && name != "experiment_id" && name != "real_plugin_path" &&
-            name != "rules") {
-            throw std::invalid_argument("Unknown fault_injection key: " + std::string(name));
-        }
-    }
-    if (!section["schema_version"].is_integer() ||
-        section["schema_version"].value<int64_t>() != 1) {
-        throw std::invalid_argument("fault_injection.schema_version must be integer 1");
-    }
-    const auto experiment = section["experiment_id"].value<std::string>();
-    if (!experiment || experiment->empty()) {
-        throw std::invalid_argument("fault_injection.experiment_id must be a nonempty string");
-    }
-    if (const auto rules = section["rules"]; rules) {
-        if (!rules.is_array() || !rules.as_array()->empty()) {
-            throw std::invalid_argument(
-                "Fault injection rules are not supported by the inert proxy");
-        }
-    }
-    const auto path = section["real_plugin_path"].value<std::string>();
-    if (!path || !std::filesystem::path(*path).is_absolute()) {
-        throw std::invalid_argument("fault_injection.real_plugin_path must be an absolute path");
-    }
-    return *path;
+    return config.getRealPluginPath();
 }
 
 struct proxyState {
