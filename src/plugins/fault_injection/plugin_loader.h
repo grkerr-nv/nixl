@@ -30,6 +30,9 @@ class pluginLoader {
     struct pluginState;
 
 public:
+    using engineDeleter = nixl::fault::engineDeleter;
+    using engine_ptr_t = nixl::fault::engine_ptr_t;
+
     // Throws for relative paths, loading errors, or an invalid plugin interface.
     // deepbind adds RTLD_DEEPBIND, as core does for UCX when NIXL_UCX_DEEPBIND is set.
     explicit pluginLoader(const std::filesystem::path &path, bool deepbind = false);
