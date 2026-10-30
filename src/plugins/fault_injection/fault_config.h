@@ -65,7 +65,7 @@ struct faultRule {
     nixl_status_t status{};
 };
 
-/** Owns a validated configuration snapshot without loading plugins or evaluating rules.
+/** Owns a validated configuration snapshot.
  *
  * Example configuration targeting the first postXfer write:
  * @code{.toml}
@@ -88,11 +88,8 @@ public:
     [[nodiscard]] static faultConfig
     parse(std::string_view text);
 
-    /** Read and parse one file.
-     *
-     * Throws std::runtime_error for file access failures, and std::invalid_argument for
-     * invalid TOML or schema, with the path prepended. Catching only std::runtime_error
-     * therefore misses every malformed configuration; catch std::exception to cover both.
+    /** Read and parse one file. Throws std::runtime_error for file access failures, and
+     * std::invalid_argument for invalid TOML or schema, with the path prepended.
      */
     [[nodiscard]] static faultConfig
     load(const std::filesystem::path &path);
