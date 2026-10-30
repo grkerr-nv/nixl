@@ -26,6 +26,21 @@ nixl_plugin_loader_dep = declare_dependency(
     include_directories: [nixl_inc_dirs, utils_inc_dirs, include_directories('.')],
     dependencies: [nixl_infra, nixl_common_dep, dl_dep])
 
+fault_config_lib = static_library('nixl_fault_config',
+    'fault_config.cpp',
+    'table_scope.cpp',
+    include_directories: nixl_inc_dirs,
+    dependencies: tomlplusplus_dep,
+    build_by_default: get_option('build_fault_injection'),
+    pic: true)
+
+# table_scope.h is toml++-facing, so consumers that test it need the header path.
+# fault_config.h itself stays free of toml++.
+nixl_fault_config_dep = declare_dependency(
+    link_with: fault_config_lib,
+    include_directories: [nixl_inc_dirs, include_directories('.')],
+    dependencies: tomlplusplus_dep)
+
 fault_proxy = shared_library('nixl_fault_proxy',
     'proxy_plugin.cpp',
     include_directories: [nixl_inc_dirs, utils_inc_dirs],

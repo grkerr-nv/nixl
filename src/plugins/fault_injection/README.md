@@ -88,6 +88,10 @@ helper for the planned fault-injection proxy. It forwards every current
 `nixlBackendEngine` virtual method, including optional methods and both
 memory-view overloads.
 
+See [fault configuration](fault_config.md) for the parsed configuration and
+status-rule schema used by the planned proxy, and [plugin loading](plugin_loader.md)
+for loading a genuine backend by path.
+
 ## Ownership and use
 
 The proxy plugin will create the genuine engine with the original initialization
