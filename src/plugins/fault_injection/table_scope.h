@@ -49,12 +49,15 @@ public:
     [[nodiscard]] tableScope
     child(const toml::table &table, std::string_view key) const;
 
+    /** Throw std::invalid_argument reading "<path><key>: <reason>". */
     [[noreturn]] void
     reject(std::string_view key, std::string_view reason) const;
 
+    /** Reject the first key in this table that is not in allowed. */
     void
     rejectUnknownKeys(std::initializer_list<std::string_view> allowed) const;
 
+    /** True when the key is present, whatever its type. */
     [[nodiscard]] bool
     contains(std::string_view key) const;
 
@@ -81,28 +84,36 @@ public:
     template<typename valueType, size_t size>
     [[nodiscard]] valueType
     requiredSymbol(std::string_view key,
-                   const std::pair<std::string_view, valueType> (&symbols)[size]) const {
-        const auto value = requiredString(key);
-        for (const auto &[name, result] : symbols) {
-            if (value == name) {
-                return result;
-            }
-        }
-        std::string accepted;
-        for (const auto &[name, result] : symbols) {
-            accepted += accepted.empty() ? "" : ", ";
-            accepted += name;
-        }
-        reject(key, "unknown value '" + value + "'; expected one of: " + accepted);
-    }
+                   const std::pair<std::string_view, valueType> (&symbols)[size]) const;
 
 private:
+    /** This scope's path followed by key, naming the field in full. */
     [[nodiscard]] std::string
     qualify(std::string_view key) const;
 
     const toml::table &table_;
     std::string path_;
 };
+
+// Defined here rather than in table_scope.cpp because callers instantiate it with their
+// own symbol tables.
+template<typename valueType, size_t size>
+valueType
+tableScope::requiredSymbol(std::string_view key,
+                           const std::pair<std::string_view, valueType> (&symbols)[size]) const {
+    const auto value = requiredString(key);
+    for (const auto &[name, result] : symbols) {
+        if (value == name) {
+            return result;
+        }
+    }
+    std::string accepted;
+    for (const auto &[name, result] : symbols) {
+        accepted += accepted.empty() ? "" : ", ";
+        accepted += name;
+    }
+    reject(key, "unknown value '" + value + "'; expected one of: " + accepted);
+}
 
 } // namespace nixl::fault
 
