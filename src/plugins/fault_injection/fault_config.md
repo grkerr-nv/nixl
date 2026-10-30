@@ -70,8 +70,7 @@ distinct methods, occurrences, or transfer directions remain independent.
 Each rule targets exactly one occurrence. Schema version 1 cannot express
 repeated, counted, or probabilistic injection, or selectors beyond `method` and
 `operation`. A later schema may add them as optional rule keys, which this parser
-rejects as unknown today. Relaxing the non-overlap rule would require a
-precedence order, so prefer selectors that keep rules disjoint.
+rejects as unknown today.
 
 `method` names a status-returning `nixlBackendEngine` virtual method:
 
@@ -94,9 +93,7 @@ keys at the document, section, or rule level.
 Schema violations raise `std::invalid_argument` naming the field and rule index;
 invalid TOML raises it with the parser's source location. `load` raises
 `std::runtime_error` when the path is not a regular file or cannot be opened or
-read, and prepends the path to schema and TOML errors. `std::invalid_argument` is
-a `std::logic_error`, so catching only `std::runtime_error` misses malformed
-configurations; catch `std::exception`.
+read, and prepends the path to schema and TOML errors.
 
 ## Scope and validation
 
