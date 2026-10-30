@@ -29,11 +29,15 @@
 
 namespace nixl::fault {
 
-/** One TOML table plus the dotted field path that prefixes its error messages.
+/** One TOML table plus the key path that prefixes its error messages.
  *
- * Every accessor validates and throws std::invalid_argument on failure, so callers read
- * as a list of schema requirements rather than a chain of conditionals. Messages are
- * `<path><key>: <reason>`, where `child` accumulates the path.
+ * Used only while parsing. Each accessor validates one field and throws
+ * std::invalid_argument on failure, so the schema functions read as a list of
+ * requirements rather than a chain of conditionals. Parsing is fail-fast: the first
+ * violation throws, so a faultConfig that exists is fully validated.
+ *
+ * child() extends the path, so a bad ID in the second rule reads
+ * "fault_injection.rules[1].id: is required".
  *
  * A scope refers to the caller's table and does not extend its lifetime.
  */
