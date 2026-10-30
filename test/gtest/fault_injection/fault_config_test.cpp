@@ -127,19 +127,13 @@ TEST(faultConfigTest, RejectsInvalidStructureAndTypesWithFieldContext) {
     expectInvalid("fault_injection = 1", "fault_injection");
     expectInvalid(std::string(config_text) + "rules = {}\n", "fault_injection.rules");
     expectInvalid(std::string(config_text) + "rules = [1]\n", "fault_injection.rules[0]");
+    // Only the checks this file owns. Missing keys, wrong types, and control characters
+    // are shared accessor behavior covered by table_scope_test.
     const std::pair<std::string_view, std::string_view> replacements[] = {
         {"schema_version = 1", "schema_version = 2"},
-        {"schema_version = 1", "schema_version = 1.0"},
-        {"schema_version = 1", "schema_version = true"},
-        {"schema_version = 1", ""},
         {"experiment_id = \"first-write\"", "experiment_id = \"\""},
-        {"experiment_id = \"first-write\"", "experiment_id = 1"},
-        {"experiment_id = \"first-write\"", "experiment_id = \"two\\nlines\""},
         {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
          "real_plugin_path = 'relative.so'"},
-        {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"", "real_plugin_path = \"\""},
-        {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
-         "real_plugin_path = \"/tmp/a\\u0000b\""},
         {"real_plugin_path = \"/not-installed/libplugin_UCX.so\"",
          "real_plugin_path = \"/not-installed/\""},
     };
@@ -152,22 +146,16 @@ TEST(faultConfigTest, RejectsInvalidStructureAndTypesWithFieldContext) {
 }
 
 TEST(faultConfigTest, RejectsInvalidRuleFieldsWithRuleIndex) {
+    // Each case covers a check this file owns: that the field is validated at all, the
+    // symbol tables, and that occurrences must be positive rather than merely integral.
+    // releaseMemView is a real backend method that returns no status.
     const std::pair<std::string_view, std::string_view> replacements[] = {
         {"id = \"fail-first-post\"", "id = \"\""},
-        {"id = \"fail-first-post\"", "id = 1"},
-        {"id = \"fail-first-post\"", "id = \"two\\nlines\""},
         {"method = \"postXfer\"", "method = \"unknownMethod\""},
         {"method = \"postXfer\"", "method = \"releaseMemView\""},
         {"operation = \"NIXL_WRITE\"", "operation = \"WRITE\""},
-        {"operation = \"NIXL_WRITE\"", "operation = false"},
         {"inject_on_occurrence = 1", "inject_on_occurrence = 0"},
-        {"inject_on_occurrence = 1", "inject_on_occurrence = -1"},
-        {"inject_on_occurrence = 1", "inject_on_occurrence = 1.0"},
-        {"inject_on_occurrence = 1", "inject_on_occurrence = true"},
-        {"inject_on_occurrence = 1", ""},
         {"status = \"NIXL_ERR_BACKEND\"", "status = \"NIXL_ERR_FUTURE\""},
-        {"status = \"NIXL_ERR_BACKEND\"", "status = -3"},
-        {"status = \"NIXL_ERR_BACKEND\"", ""},
     };
     for (const auto &[original, replacement] : replacements) {
         SCOPED_TRACE(replacement);
