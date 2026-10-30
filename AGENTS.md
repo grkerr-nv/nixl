@@ -31,13 +31,14 @@ ask for its location rather than guessing the design.
   `resiliency/fault-injection-adapter` or `resiliency/backend-error-tests`.
 - Keep each feature branch focused on one coherent change. Use a separate Git
   worktree when working on multiple branches concurrently.
-- Merge completed feature branches back into this repository's `nixl-resiliency` branch.
-  Target this integration branch when opening feature pull requests.
-- Before merging, review the diff, run checks appropriate to the change, and
+- Land completed feature branches on this repository's `nixl-resiliency` branch by
+  rebasing them onto it and fast-forwarding, not by merging. Target this integration
+  branch when opening feature pull requests.
+- Before landing, review the diff, run checks appropriate to the change, and
   document the resulting behavior and any remaining limitations. Add regression
   coverage for failure handling and recovery changes.
-- Treat eventual integration into upstream NIXL as a separate step from merging
-  component features into this working branch.
+- Treat eventual integration into upstream NIXL as a separate step from landing
+  component features on this working branch.
 
 ## Keep the fork current
 
@@ -62,12 +63,15 @@ resiliency PR branches and their dependency branches. Query PRs explicitly in
 1. Record the starting branch, inspect worktrees and local/remote divergence,
    and preserve all local work. Fetch `upstream` and `origin`. Record the fetched
    remote tips for push leases and create local backup refs before rewriting
-   feature branches. Do not discard divergent commits or touch backup branches.
+   `nixl-resiliency` or any feature branch, including branches stacked on them.
+   Do not discard divergent commits or touch backup branches.
 2. Fast-forward `main` to `origin/main` and `upstream/main`, then push it to
    `origin`. Inspect any divergence instead of resetting or force-pushing.
-3. Fast-forward `nixl-resiliency` to `origin/nixl-resiliency`, merge `main` with
-   sign-off, resolve conflicts, and run relevant checks. Push integration before
-   rebasing feature branches. Never rebase or force-push either shared branch.
+3. Fast-forward `nixl-resiliency` to `origin/nixl-resiliency`, rebase it onto
+   `main`, resolve conflicts, and run relevant checks. Confirm the rebase changed
+   no content by diffing the result against its backup ref: the only difference
+   must be the new `main` commits. Push integration with `--force-with-lease`
+   before rebasing feature branches. Never rebase or force-push `main`.
 4. Rebase independent feature branches onto published `origin/nixl-resiliency`.
    Update stacked branches in dependency order, replaying only their own work
    onto the updated parent with `--onto` when needed. Preserve meaningful merge
@@ -99,17 +103,26 @@ git push origin main
 ```
 
 If a fast-forward fails, inspect the divergence before proceeding. Do not reset
-or force-push shared branches to make the update succeed.
+or force-push `main` to make the update succeed.
 
-Update and push integration before touching feature branches:
+Update and push integration before touching feature branches. Rebasing drops the
+integration branch's own merge commits and replays its work linearly, so verify
+the content before publishing:
 
 ```bash
 git switch nixl-resiliency
 git merge --ff-only origin/nixl-resiliency
-git merge --signoff main
+git branch -f backup/pre-rebase/nixl-resiliency nixl-resiliency
+git rebase main
+# Only the new main commits may differ; anything else means work was lost.
+git diff --stat backup/pre-rebase/nixl-resiliency nixl-resiliency
 # Resolve conflicts and run relevant checks before pushing.
-git push origin nixl-resiliency
+git push --force-with-lease origin nixl-resiliency
 ```
+
+Rewriting integration orphans every branch stacked on it. Rebase those branches
+onto the new integration tip in dependency order, or publish integration only
+once their rebases are ready.
 
 After the integration push succeeds, rebase each active feature PR branch:
 
@@ -122,8 +135,10 @@ git push --force-with-lease origin resiliency/forwarding-engine
 
 Inspect local/remote feature divergence and preserve all work before rebasing.
 Keep shared instructions in integration so feature PRs inherit the same AGENTS.md.
-Use merges for shared integration history; never rebase or force-push `main` or
-`nixl-resiliency`. Use `--force-with-lease` when publishing rebased feature branches.
+Keep history linear: rebase both `nixl-resiliency` and feature branches rather
+than merging. Never rebase or force-push `main`, which only fast-forwards.
+Use `--force-with-lease` whenever publishing a rebased branch, back it up first,
+and rebase anything stacked on it afterwards.
 Remove local substitutes when upstream now provides the same functionality.
 
 ## Test scope and CI cost
