@@ -79,8 +79,7 @@ reads the wrapper's own empty queue. No backend currently calls
 drain the genuine engine's public `getTelemetryEvents()` into the wrapper queue.
 
 Plugin-level identity, rule evaluation, injection, and overhead measurement
-remain separate work. Functional tests do not prove the design's statistical
-non-perturbation requirement.
+remain separate work.
 
 ## Validation
 

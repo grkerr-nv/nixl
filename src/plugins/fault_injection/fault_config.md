@@ -18,8 +18,7 @@ limitations under the License.
 # Fault configuration
 
 `fault_config.h` provides `nixl::fault::faultConfig`, an owning, validated snapshot
-of the schema-version-1 status-rule configuration. It reuses the existing toml++
-dependency and does not load a plugin or evaluate rules.
+of the schema-version-1 status-rule configuration.
 
 ## API
 
@@ -32,17 +31,13 @@ const auto &experiment_id = config.getExperimentId();
 const auto &rules = config.getRules();
 ```
 
-`faultConfig::parse(text)` parses TOML supplied as `std::string_view`.
-`faultConfig::load(path)` reads a file and applies the same validation. Both return
-an independent snapshot: changes to the source text or file do not change it.
-Accessors return const references, valid while the configuration remains alive
-and unchanged. Rule definitions contain typed backend methods, optional transfer
-operations, one-based occurrence numbers, and NIXL statuses. Runtime counters and
-spent-rule state belong to the evaluator, outside the parsed configuration.
+`parse` and `load` validate identically and return an independent snapshot: the
+source text or file may change or disappear afterwards. Accessors return const
+references valid for the configuration's lifetime. Occurrence counters and
+spent-rule state belong to the evaluator, not to the parsed configuration.
 
 The eventual proxy selects the file through `NIXL_FAULT_CONFIG_FILE` and retains
-one snapshot during initialization. The parser itself does not read environment
-variables or install process-wide state.
+one snapshot during initialization.
 
 ## Schema
 
@@ -61,28 +56,24 @@ status = "NIXL_ERR_BACKEND"
 ```
 
 `schema_version`, `experiment_id`, and `real_plugin_path` are required.
-`schema_version` must be integer `1`. IDs and paths must be nonempty strings
-without control characters, since those values appear in error messages and logs.
-`real_plugin_path` must be absolute and must name a file rather than a directory;
-its existence and plugin validity are checked by the loader, not by this parser.
+`schema_version` must be integer `1`. IDs and paths must be nonempty and free of
+control characters, which would corrupt error messages and logs.
+`real_plugin_path` must be absolute and name a file, not a directory; the loader
+checks existence and plugin validity.
 
-`rules` may be omitted or set to `[]` for an inert configuration. Each rule
-requires a unique `id`, `method`, `inject_on_occurrence`, and `status`.
-`inject_on_occurrence` must be an integer from 1 through 9223372036854775807,
-the upper bound of TOML's signed 64-bit integer range. File order is preserved.
+`rules` may be omitted or `[]` for an inert configuration. Each rule requires a
+unique `id`, `method`, a positive `inject_on_occurrence`, and `status`.
 
 Rules must not overlap. Two rules naming the same `method` and
-`inject_on_occurrence` are rejected when their operations intersect, so no call
-can match more than one rule. The evaluator therefore needs no precedence order,
-and a configuration cannot hide a rule behind an earlier one. Rules on distinct
-methods, occurrences, or transfer directions remain independent.
+`inject_on_occurrence` are rejected when their operations intersect, so at most
+one rule matches any call and the evaluator needs no precedence order. Rules on
+distinct methods, occurrences, or transfer directions remain independent.
 
-Each rule therefore targets exactly one occurrence. Repeated, counted, or
-probabilistic injection, and selectors beyond `method` and `operation` such as a
-remote agent name or memory type, are not expressible in schema version 1. A
-later schema may add them as new optional rule keys, which this parser already
-rejects as unknown keys today. Relaxing the non-overlap rule would also require
-defining a precedence order, so prefer selectors that keep rules disjoint.
+Each rule targets exactly one occurrence. Schema version 1 cannot express
+repeated, counted, or probabilistic injection, or selectors beyond `method` and
+`operation`. A later schema may add them as optional rule keys, which this parser
+rejects as unknown today. Relaxing the non-overlap rule would require a
+precedence order, so prefer selectors that keep rules disjoint.
 
 `method` names a status-returning `nixlBackendEngine` virtual method:
 
@@ -92,34 +83,30 @@ defining a precedence order, so prefer selectors that keep rules disjoint.
 - `getNotifs`, `genNotif`, `queryMem`, `estimateXferCost`.
 
 `prepMemView` selects both overloads. Optional `operation` accepts `NIXL_READ` or
-`NIXL_WRITE` only for methods with an explicit operation argument: `prepXfer`,
-`postXfer`, and `estimateXferCost`. An omitted `operation` matches both transfer
-directions. Methods receiving only an opaque request handle do not expose an
-operation to this configuration model.
+`NIXL_WRITE`, and only for the methods with an explicit operation argument:
+`prepXfer`, `postXfer`, and `estimateXferCost`. An omitted `operation` matches
+both transfer directions.
 
-`status` accepts every current symbolic `nixl_status_t` value, including all
-12 error statuses, `NIXL_SUCCESS`, and `NIXL_IN_PROG`. Numeric statuses are rejected.
-Unknown keys at the document, section, or rule level are rejected. Invalid field
-types, unknown symbols, duplicate rule IDs, overlapping rules, and invalid
-occurrence numbers raise `std::invalid_argument` with field and rule-index
-context. Invalid TOML also raises `std::invalid_argument`, with the parser's
-source location.
+`status` accepts every symbolic `nixl_status_t` value: all 12 error statuses,
+`NIXL_SUCCESS`, and `NIXL_IN_PROG`. Numeric statuses are rejected, as are unknown
+keys at the document, section, or rule level.
 
-`load` raises `std::runtime_error` when the path is not a regular file or cannot
-be opened or read, and `std::invalid_argument` with the path prepended for every
-schema and TOML error. `std::invalid_argument` is a `std::logic_error`, so
-catching only `std::runtime_error` around `load` misses malformed configurations;
-catch `std::exception` to handle both.
+## Errors
+
+Schema violations raise `std::invalid_argument` naming the field and rule index;
+invalid TOML raises it with the parser's source location. `load` raises
+`std::runtime_error` when the path is not a regular file or cannot be opened or
+read, and prepends the path to schema and TOML errors. `std::invalid_argument` is
+a `std::logic_error`, so catching only `std::runtime_error` misses malformed
+configurations; catch `std::exception`.
 
 ## Scope and validation
 
 This component represents status rules only. Request-handle corruption fields
-are rejected until their schema is defined. It does not implement injection,
-rule matching, configuration digests, or structured logging. An inert consumer
-must reject nonempty rules until it can execute them.
+are rejected until their schema is defined. An inert consumer must reject
+nonempty rules until it can execute them.
 
-Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
-setup without adding plugin fixtures or dependencies:
+Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest setup:
 
 ```bash
 meson test -C build plugin_loader --test-args='--gtest_filter=faultConfig*.*' --print-errorlogs
