@@ -17,6 +17,8 @@
 
 #include "fault_config.h"
 
+#include "table_scope.h"
+
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -75,116 +77,6 @@ namespace {
     constexpr std::pair<std::string_view, nixl_xfer_op_t> operations[] = {
         {"NIXL_READ", NIXL_READ},
         {"NIXL_WRITE", NIXL_WRITE},
-    };
-
-    // One TOML table plus the dotted field path that prefixes its error messages. Every
-    // accessor validates and throws, so callers read as a list of schema requirements.
-    class tableScope {
-    public:
-        tableScope(const toml::table &table, std::string path)
-            : table_(table),
-              path_(std::move(path)) {}
-
-        // Scope for a nested table, extending this path with key.
-        tableScope
-        child(const toml::table &table, std::string_view key) const {
-            return tableScope(table, qualify(key) + ".");
-        }
-
-        [[noreturn]] void
-        reject(std::string_view key, std::string_view reason) const {
-            throw std::invalid_argument(qualify(key) + ": " + std::string(reason));
-        }
-
-        void
-        rejectUnknownKeys(std::initializer_list<std::string_view> allowed) const {
-            for (const auto &[key, value] : table_) {
-                if (std::find(allowed.begin(), allowed.end(), key.str()) == allowed.end()) {
-                    reject(key.str(), "unknown key");
-                }
-            }
-        }
-
-        bool
-        contains(std::string_view key) const {
-            return table_.contains(key);
-        }
-
-        // Null when the key is absent, so callers distinguish an omitted array from a
-        // malformed one without reaching for the underlying table.
-        const toml::array *
-        optionalArray(std::string_view key) const {
-            if (!contains(key)) {
-                return nullptr;
-            }
-            const auto *array = table_[key].as_array();
-            if (array == nullptr) {
-                reject(key, "must be an array of tables");
-            }
-            return array;
-        }
-
-        std::string
-        requiredString(std::string_view key) const {
-            const auto value = table_[key].value<std::string>();
-            if (!value) {
-                reject(key, contains(key) ? "must be a string" : "is required");
-            }
-            // Control bytes would corrupt the error messages and logs that carry these values.
-            const auto control = [](char character) {
-                const auto byte = static_cast<unsigned char>(character);
-                return byte < 0x20 || byte == 0x7F;
-            };
-            if (value->empty() || std::any_of(value->begin(), value->end(), control)) {
-                reject(key, "must be a nonempty string without control characters");
-            }
-            return *value;
-        }
-
-        int64_t
-        requiredInteger(std::string_view key) const {
-            if (!table_[key].is_integer()) {
-                reject(key, contains(key) ? "must be an integer" : "is required");
-            }
-            return *table_[key].value<int64_t>();
-        }
-
-        uint64_t
-        positiveInteger(std::string_view key) const {
-            const auto value = requiredInteger(key);
-            if (value <= 0) {
-                reject(key, "must be a positive integer");
-            }
-            return static_cast<uint64_t>(value);
-        }
-
-        // Map a required string field onto one of symbols, reporting the accepted names.
-        template<typename valueType, size_t size>
-        valueType
-        requiredSymbol(std::string_view key,
-                       const std::pair<std::string_view, valueType> (&symbols)[size]) const {
-            const auto value = requiredString(key);
-            for (const auto &[name, result] : symbols) {
-                if (value == name) {
-                    return result;
-                }
-            }
-            std::string accepted;
-            for (const auto &[name, result] : symbols) {
-                accepted += accepted.empty() ? "" : ", ";
-                accepted += name;
-            }
-            reject(key, "unknown value '" + value + "'; expected one of: " + accepted);
-        }
-
-    private:
-        std::string
-        qualify(std::string_view key) const {
-            return path_ + std::string(key);
-        }
-
-        const toml::table &table_;
-        std::string path_;
     };
 
     toml::table

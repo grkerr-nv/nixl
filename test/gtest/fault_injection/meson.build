@@ -36,6 +36,7 @@ loader_fixture_no_fini = shared_library('loader_fixture_no_fini',
 plugin_loader_test = executable('plugin_loader_test',
     'plugin_loader_test.cpp',
     'fault_config_test.cpp',
+    'table_scope_test.cpp',
     link_args: ['-Wl,--wrap=dlerror'],
     cpp_args: [
         '-DLOADER_FIXTURE_PATH="' + loader_fixture.full_path() + '"',
