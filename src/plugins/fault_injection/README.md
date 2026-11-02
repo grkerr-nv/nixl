@@ -60,9 +60,9 @@ rules = []
 `real_plugin_path` must point to the genuine library, never the proxy or its
 symlink. The configuration file is required even with no injection rules because
 the proxy cannot infer the genuine library's location. Missing or invalid
-configuration fails plugin initialization with a NIXL error log. Unknown keys,
-unsupported schema versions, empty experiment IDs, and nonempty or malformed
-rules are rejected. Injection is not implemented in this chunk.
+configuration fails plugin initialization with a NIXL error log. The proxy uses
+`faultConfig::load` for the shared [TOML schema and validation](fault_config.md),
+then rejects nonempty rules because injection is not implemented in this chunk.
 
 The proxy reads configuration once per initialized lifetime. Matching calls to
 `nixl_plugin_init` and `nixl_plugin_fini` share that state. Genuine engines retain
@@ -89,7 +89,7 @@ helper for the planned fault-injection proxy. It forwards every current
 memory-view overloads.
 
 See [fault configuration](fault_config.md) for the parsed configuration and
-status-rule schema used by the planned proxy, and [plugin loading](plugin_loader.md)
+status-rule schema used by the proxy, and [plugin loading](plugin_loader.md)
 for loading a genuine backend by path.
 
 ## Ownership and use

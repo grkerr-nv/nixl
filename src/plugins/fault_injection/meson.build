@@ -44,7 +44,7 @@ nixl_fault_config_dep = declare_dependency(
 fault_proxy = shared_library('nixl_fault_proxy',
     'proxy_plugin.cpp',
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
-    dependencies: [nixl_plugin_loader_dep],
+    dependencies: [nixl_plugin_loader_dep, nixl_fault_config_dep],
     gnu_symbol_visibility: 'hidden',
     build_by_default: get_option('build_fault_injection'),
     install: get_option('build_fault_injection'),

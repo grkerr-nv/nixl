@@ -258,6 +258,9 @@ TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
              base + "real_plugin_path = '" + PROXY_PLUGIN_PATH + "'\n",
              base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nunknown = 1\n",
              base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nrules = [{}]\n",
+             base + "real_plugin_path = '" + LOADER_FIXTURE_PATH +
+                 "'\n[[fault_injection.rules]]\nid = 'first-connect'\nmethod = 'connect'\n"
+                 "inject_on_occurrence = 1\nstatus = 'NIXL_ERR_BACKEND'\n",
              base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nrules = 'invalid'\n"}) {
         SCOPED_TRACE(contents);
         writeConfig(contents);
@@ -266,6 +269,14 @@ TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
     EXPECT_TRUE(events_.empty());
     writeConfig();
     EXPECT_NE(initialize(), nullptr);
+}
+
+TEST_F(proxyPluginTest, RejectsUnknownRootFieldsBeforeLoadingGenuinePlugin) {
+    writeConfig("unknown = 1\n[fault_injection]\nschema_version = 1\n"
+                "experiment_id = 'inert-test'\nreal_plugin_path = '" +
+                std::string(LOADER_FIXTURE_PATH) + "'\n");
+    EXPECT_EQ(initialize(), nullptr);
+    EXPECT_TRUE(events_.empty());
 }
 
 TEST_F(proxyPluginTest, ContainsFactoryFailuresAndCleansUpWrapperConstructionFailure) {
