@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// Exercises normal plugin discovery and inert proxy forwarding to real UCX with a
+// 4 KiB DRAM transfer between two agents in one process. Checks data and cleanup;
+// does not test fault injection, multi-node behavior, or proxy overhead.
+
 #include "nixl.h"
 
 #include <gtest/gtest.h>

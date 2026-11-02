@@ -99,7 +99,10 @@ protected:
     void
     configure(fixture_mode_t mode = fixture_mode_t::VALID) {
         events_.clear();
-        configure_(mode, {this, recordEvent, onEngineCreated});
+        configure_(mode,
+                   {/*=context*/ this,
+                    /*=recordFunctionPtr*/ recordEvent,
+                    /*=engineCreatedFunctionPtr*/ onEngineCreated});
     }
 
     void
