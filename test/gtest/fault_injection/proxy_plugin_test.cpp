@@ -349,8 +349,10 @@ TEST_F(proxyPluginTest, CoreDiscovery) {
     auto plugin = manager.loadBackendPlugin("LOADER_FIXTURE");
     ASSERT_NE(plugin, nullptr);
     EXPECT_STREQ(plugin->getName(), "LOADER_FIXTURE");
-    auto engine = std::unique_ptr<nixlBackendEngine, void (*)(nixlBackendEngine *)>(
-        plugin->createEngine(&params_), [](nixlBackendEngine *value) { delete value; });
+    // Tear down the way core does, through the plugin handle, not with a raw delete.
+    const auto destroy = [&plugin](nixlBackendEngine *value) { plugin->destroyEngine(value); };
+    std::unique_ptr<nixlBackendEngine, decltype(destroy)> engine(plugin->createEngine(&params_),
+                                                                 destroy);
     ASSERT_NE(engine, nullptr);
     ASSERT_NE(genuine_, nullptr);
     EXPECT_CALL(*genuine_, connect("peer")).WillOnce(Return(NIXL_ERR_BACKEND));
