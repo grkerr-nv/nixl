@@ -52,6 +52,7 @@ test('plugin_loader', plugin_loader_test,
 
 proxy_plugin_test = executable('proxy_plugin_test',
     'proxy_plugin_test.cpp',
+    '../common.cpp',
     cpp_args: [
         '-DLOADER_FIXTURE_PATH="' + loader_fixture.full_path() + '"',
         '-DPROXY_PLUGIN_PATH="' + fault_proxy.full_path() + '"',
@@ -62,17 +63,18 @@ proxy_plugin_test = executable('proxy_plugin_test',
                    dependency('gtest', version: '>=1.11.0', main: true)])
 
 test('proxy_plugin', proxy_plugin_test,
-     args: ['--gtest_filter=-*.CoreDiscovery'],
+     args: ['--gtest_filter=-proxyPluginTest.CoreDiscovery'],
      depends: [fault_proxy, loader_fixture],
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
 test('proxy_discovery', proxy_plugin_test,
-     args: ['--gtest_filter=*.CoreDiscovery'],
+     args: ['--gtest_filter=proxyPluginTest.CoreDiscovery'],
      depends: [fault_proxy, loader_fixture],
      env: sanitizer_env, suite: ['resiliency', 'sanitizer'])
 
 if is_variable('ucx_backend_lib') and 'UCX' not in static_plugins and get_option('buildtype') != 'debug'
     proxy_ucx_test = executable('proxy_ucx_test',
         'proxy_ucx_test.cpp',
+        '../common.cpp',
         cpp_args: [
             '-DPROXY_PLUGIN_PATH="' + fault_proxy.full_path() + '"',
             '-DREAL_UCX_PLUGIN_PATH="' + ucx_backend_lib.full_path() + '"',

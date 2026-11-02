@@ -20,6 +20,7 @@
 // does not test fault injection, multi-node behavior, or proxy overhead.
 
 #include "nixl.h"
+#include "../common.h"
 
 #include <gtest/gtest.h>
 
@@ -27,7 +28,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,8 +39,8 @@ class proxyUcxTest : public testing::Test {
 protected:
     void
     SetUp() override {
-        char directory[] = "/tmp/nixl-proxy-ucx-XXXXXX";
-        const char *created = mkdtemp(directory);
+        auto pattern = (std::filesystem::temp_directory_path() / "nixl-proxy-ucx-XXXXXX").string();
+        const char *created = mkdtemp(pattern.data());
         ASSERT_NE(created, nullptr);
         directory_ = created;
         std::filesystem::create_symlink(PROXY_PLUGIN_PATH, directory_ / "libplugin_UCX.so");
@@ -49,42 +49,21 @@ protected:
         ASSERT_TRUE(file);
         file << "[fault_injection]\nschema_version = 1\nexperiment_id = 'ucx-smoke'\n"
              << "real_plugin_path = '" << REAL_UCX_PLUGIN_PATH << "'\n";
-        save("NIXL_FAULT_CONFIG_FILE", originalConfig_);
-        save("NIXL_PLUGIN_DIR", originalPluginDir_);
-        ASSERT_EQ(setenv("NIXL_FAULT_CONFIG_FILE", config.c_str(), 1), 0);
-        ASSERT_EQ(setenv("NIXL_PLUGIN_DIR", directory_.c_str(), 1), 0);
+        env_.addVar("NIXL_FAULT_CONFIG_FILE", config.string());
+        env_.addVar("NIXL_PLUGIN_DIR", directory_.string());
     }
 
     void
     TearDown() override {
-        // Restore before removing the directory, so nothing is left pointing into it.
-        restore("NIXL_FAULT_CONFIG_FILE", originalConfig_);
-        restore("NIXL_PLUGIN_DIR", originalPluginDir_);
+        // env_ restores both variables before the directory they point into is removed.
         if (!directory_.empty()) {
             std::filesystem::remove_all(directory_);
         }
     }
 
 private:
-    static void
-    save(const char *name, std::optional<std::string> &original) {
-        if (const char *value = std::getenv(name)) {
-            original = value;
-        }
-    }
-
-    static void
-    restore(const char *name, const std::optional<std::string> &original) {
-        if (original) {
-            setenv(name, original->c_str(), 1);
-        } else {
-            unsetenv(name);
-        }
-    }
-
     std::filesystem::path directory_;
-    std::optional<std::string> originalConfig_;
-    std::optional<std::string> originalPluginDir_;
+    gtest::ScopedEnv env_;
 };
 
 TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
@@ -92,9 +71,9 @@ TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
     nixlAgentConfig config;
     config.useProgThread = true;
     nixlAgent sender("proxy-sender", config), receiver("proxy-receiver", config);
-    nixlBackendH *backend = nullptr;
-    ASSERT_EQ(sender.createBackend("UCX", {}, backend), NIXL_SUCCESS);
-    ASSERT_EQ(receiver.createBackend("UCX", {}, backend), NIXL_SUCCESS);
+    nixlBackendH *sender_backend = nullptr, *receiver_backend = nullptr;
+    ASSERT_EQ(sender.createBackend("UCX", {}, sender_backend), NIXL_SUCCESS);
+    ASSERT_EQ(receiver.createBackend("UCX", {}, receiver_backend), NIXL_SUCCESS);
 
     nixl_reg_dlist_t source_regs(DRAM_SEG), destination_regs(DRAM_SEG);
     const auto source_address = reinterpret_cast<uintptr_t>(source.data());

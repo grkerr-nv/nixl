@@ -18,6 +18,7 @@
 #include "plugin_loader_fixture_api.h"
 #include "backend/backend_plugin.h"
 #include "plugin_manager.h"
+#include "../common.h"
 #include "../mocks/gmock_engine.h"
 
 #include <gtest/gtest.h>
@@ -27,7 +28,6 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,15 +45,12 @@ protected:
     SetUp() override {
         // Match production: core exists before it loads any proxy globals.
         static_cast<void>(nixlPluginManager::getInstance());
-        if (const char *value = std::getenv("NIXL_FAULT_CONFIG_FILE")) {
-            originalConfig_ = value;
-        }
-        char directory[] = "/tmp/nixl-proxy-test-XXXXXX";
-        const char *created = mkdtemp(directory);
+        auto pattern = (std::filesystem::temp_directory_path() / "nixl-proxy-test-XXXXXX").string();
+        const char *created = mkdtemp(pattern.data());
         ASSERT_NE(created, nullptr);
         directory_ = created;
         configPath_ = directory_ / "config.toml";
-        ASSERT_EQ(setenv("NIXL_FAULT_CONFIG_FILE", configPath_.c_str(), 1), 0);
+        env_.addVar("NIXL_FAULT_CONFIG_FILE", configPath_.string());
         std::filesystem::create_symlink(PROXY_PLUGIN_PATH,
                                         directory_ / "libplugin_LOADER_FIXTURE.so");
         fixture_ = dlopen(LOADER_FIXTURE_PATH, RTLD_NOW | RTLD_LOCAL);
@@ -86,11 +83,6 @@ protected:
         if (fixture_) {
             dlclose(fixture_);
         }
-        if (originalConfig_) {
-            setenv("NIXL_FAULT_CONFIG_FILE", originalConfig_->c_str(), 1);
-        } else {
-            unsetenv("NIXL_FAULT_CONFIG_FILE");
-        }
         if (!directory_.empty()) {
             std::filesystem::remove_all(directory_);
         }
@@ -99,10 +91,9 @@ protected:
     void
     configure(fixture_mode_t mode = fixture_mode_t::VALID) {
         events_.clear();
+        genuine_ = nullptr;
         configure_(mode,
-                   {/*=context*/ this,
-                    /*=recordFunctionPtr*/ recordEvent,
-                    /*=engineCreatedFunctionPtr*/ onEngineCreated});
+                   {.context = this, .record = recordEvent, .engineCreated = onEngineCreated});
     }
 
     void
@@ -142,6 +133,7 @@ protected:
     std::vector<fixture_event_t> events_;
     const nixlBackendInitParams *createParams_ = nullptr;
     mocks::GMockBackendEngine *genuine_ = nullptr;
+    gtest::ScopedEnv env_;
     bool changeParams_ = false;
 
 private:
@@ -163,7 +155,6 @@ private:
         }
     }
 
-    std::optional<std::string> originalConfig_;
     void *fixture_ = nullptr;
     void *proxy_ = nullptr;
     loader_fixture::configure_t configure_ = nullptr;
@@ -271,9 +262,9 @@ TEST_F(proxyPluginTest, BalancesRepeatedInitializationAndReadsConfigurationOnce)
 }
 
 TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
-    unsetenv("NIXL_FAULT_CONFIG_FILE");
+    env_.unsetVar("NIXL_FAULT_CONFIG_FILE");
     EXPECT_EQ(initialize(), nullptr);
-    setenv("NIXL_FAULT_CONFIG_FILE", configPath_.c_str(), 1);
+    env_.popVar();
     std::filesystem::remove(configPath_);
     EXPECT_EQ(initialize(), nullptr);
     const std::string base = "[fault_injection]\nschema_version = 1\nexperiment_id = 'test'\n";
