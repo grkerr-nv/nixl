@@ -63,6 +63,8 @@ the proxy cannot infer the genuine library's location. Missing or invalid
 configuration fails plugin initialization with a NIXL error log. The proxy uses
 `faultConfig::load` for the shared [TOML schema and validation](fault_config.md),
 then rejects nonempty rules because injection is not implemented in this chunk.
+Successful initialization logs the backend name and `experiment_id`, so a run can
+be traced back to the configuration that produced it.
 
 The proxy reads configuration once per initialized lifetime. Matching calls to
 `nixl_plugin_init` and `nixl_plugin_fini` share that state. Genuine engines retain

@@ -51,8 +51,15 @@ shouldDeepBind() {
     }
 }
 
-std::filesystem::path
-readPluginPath() {
+// What the inert proxy uses from the configuration: where the genuine plugin lives, and
+// the experiment the run log must name.
+struct proxyConfig {
+    std::filesystem::path realPluginPath;
+    std::string experimentId;
+};
+
+proxyConfig
+readConfig() {
     const char *file = std::getenv("NIXL_FAULT_CONFIG_FILE");
     if (!file || !*file) {
         throw std::invalid_argument(
@@ -62,12 +69,15 @@ readPluginPath() {
     if (!config.getRules().empty()) {
         throw std::invalid_argument("Fault injection rules are not supported by the inert proxy");
     }
-    return config.getRealPluginPath();
+    return {config.getRealPluginPath(), config.getExperimentId()};
 }
 
 struct proxyState {
-    explicit proxyState(const std::filesystem::path &path) : loader(path, shouldDeepBind()) {}
+    explicit proxyState(proxyConfig config)
+        : experimentId(std::move(config.experimentId)),
+          loader(config.realPluginPath, shouldDeepBind()) {}
 
+    std::string experimentId;
     nixl::fault::pluginLoader loader;
 };
 
@@ -188,13 +198,14 @@ nixl_plugin_init() {
     return callGuarded("Cannot initialize fault proxy", []() -> nixlBackendPlugin * {
         const std::lock_guard lock(state_mutex);
         if (!state) {
-            auto created = std::make_shared<proxyState>(readPluginPath());
+            auto created = std::make_shared<proxyState>(readConfig());
             // Retain both before publishing either, so identity never goes half updated.
             const auto &[name, version] = retainIdentity(created->loader);
             plugin_name.store(name.c_str(), std::memory_order_release);
             plugin_version.store(version.c_str(), std::memory_order_release);
             state = new std::shared_ptr<proxyState>(std::move(created));
-            NIXL_INFO << "Fault proxy initialized for " << name << "; injection disabled";
+            NIXL_INFO << "Fault proxy initialized for " << name << " as experiment '"
+                      << (*state)->experimentId << "'; injection disabled";
         }
         ++initializations;
         return &plugin;
