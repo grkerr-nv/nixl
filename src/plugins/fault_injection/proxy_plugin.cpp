@@ -23,7 +23,6 @@
 #include "common/nixl_log.h"
 
 #include <atomic>
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -60,12 +59,14 @@ struct proxyConfig {
 
 proxyConfig
 readConfig() {
-    const char *file = std::getenv("NIXL_FAULT_CONFIG_FILE");
-    if (!file || !*file) {
+    // Read through the config facade, as the deepbind policy does, so a NIXL configuration
+    // file can supply this too. An empty setting is a mistake, not an unset one.
+    const auto file = nixl::config::getValueOptional<std::string>("NIXL_FAULT_CONFIG_FILE");
+    if (!file || file->empty()) {
         throw std::invalid_argument(
             "NIXL_FAULT_CONFIG_FILE must specify real_plugin_path configuration");
     }
-    const auto config = nixl::fault::faultConfig::load(file);
+    const auto config = nixl::fault::faultConfig::load(*file);
     if (!config.getRules().empty()) {
         throw std::invalid_argument("Fault injection rules are not supported by the inert proxy");
     }
@@ -215,7 +216,11 @@ nixl_plugin_init() {
 extern "C" NIXL_PLUGIN_EXPORT void
 nixl_plugin_fini() {
     const std::lock_guard lock(state_mutex);
-    if (initializations && --initializations == 0) {
+    if (!initializations) {
+        NIXL_WARN << "Fault proxy finalized more times than it was initialized; ignoring";
+        return;
+    }
+    if (--initializations == 0) {
         // Hold the lock through teardown, as init does through the genuine plugin's
         // initialization. Releasing first would let a concurrent init re-initialize the
         // genuine library while this thread finalizes it.
