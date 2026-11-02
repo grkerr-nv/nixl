@@ -76,6 +76,14 @@ struct proxyState {
 // whenever it has no genuine plugin to describe.
 constexpr const char *unknown_identity = "unknown";
 
+// Serializes this DSO's plugin lifecycle: protects state, initializations, and
+// retainIdentity's storage. It lives outside proxyState to guard its creation/removal.
+// init holds it through configuration loading, genuine plugin initialization, and
+// state publication. tryGetState holds it only while copying the shared owner;
+// backend callbacks then use that owner without the lock. fini detaches the state
+// and resets identity under the lock, then destroys the detached owner after unlocking.
+// Each lock_guard releases at scope exit, including exception unwinding. Engine
+// forwarding does not take this mutex; name/version accessors use atomics instead.
 std::mutex state_mutex;
 // Core may finalize plugins after DSO globals have been destroyed at process exit.
 // Own the slot explicitly between init/fini instead of registering a static destructor.
