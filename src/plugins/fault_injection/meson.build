@@ -32,6 +32,7 @@ fault_config_lib = static_library('nixl_fault_config',
     include_directories: nixl_inc_dirs,
     dependencies: tomlplusplus_dep,
     build_by_default: get_option('build_fault_injection'),
+    gnu_symbol_visibility: 'hidden',
     pic: true)
 
 # table_scope.h is toml++-facing, so consumers that test it need the header path.
