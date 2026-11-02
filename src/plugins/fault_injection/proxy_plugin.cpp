@@ -24,7 +24,6 @@
 
 #include <atomic>
 #include <cstdlib>
-#include <dlfcn.h>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -34,12 +33,13 @@
 
 namespace {
 
-// Match core's UCX policy using the filename selected by plugin discovery.
+// Match core's UCX policy, keyed on the library being loaded rather than on the name the
+// proxy was discovered under. RTLD_DEEPBIND exists to stop the genuine library's symbols
+// interposing, so the genuine path decides. Core hardcodes the backend the same way, in
+// shouldDeepBindPlugin (src/core/nixl_plugin_manager.cpp).
 bool
-shouldDeepBind() {
-    Dl_info info{};
-    if (!dladdr(reinterpret_cast<void *>(&shouldDeepBind), &info) || !info.dli_fname ||
-        std::filesystem::path(info.dli_fname).filename() != "libplugin_UCX.so") {
+shouldDeepBind(const std::filesystem::path &real_plugin_path) {
+    if (real_plugin_path.filename() != "libplugin_UCX.so") {
         return false;
     }
     try {
@@ -75,7 +75,7 @@ readConfig() {
 struct proxyState {
     explicit proxyState(proxyConfig config)
         : experimentId(std::move(config.experimentId)),
-          loader(config.realPluginPath, shouldDeepBind()) {}
+          loader(config.realPluginPath, shouldDeepBind(config.realPluginPath)) {}
 
     std::string experimentId;
     nixl::fault::pluginLoader loader;

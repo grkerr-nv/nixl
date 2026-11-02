@@ -78,8 +78,8 @@ the option and memory lists are empty, as core reports for an accessor a plugin
 omits. One immutable name/version pair keeps returned pointers stable across
 finalization and reinitialization while the proxy library remains loaded.
 Reinitialization with a different name or version fails; start a new process to
-change backend identity. When discovered as `libplugin_UCX.so`, the proxy applies
-core's `NIXL_UCX_DEEPBIND` policy to the genuine library. See
+change backend identity. When `real_plugin_path` names `libplugin_UCX.so`, the
+proxy applies core's `NIXL_UCX_DEEPBIND` policy to it. See
 [loader limitations](plugin_loader.md).
 
 One mutex is held across the genuine plugin's `nixl_plugin_init` and
