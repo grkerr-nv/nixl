@@ -85,6 +85,9 @@ name() {
     if (mode == fixture_mode_t::NULL_NAME) {
         return nullptr;
     }
+    if (mode == fixture_mode_t::DIFFERENT_NAME) {
+        return "OTHER_FIXTURE";
+    }
     return mode == fixture_mode_t::EMPTY_NAME ? "" : "LOADER_FIXTURE";
 }
 
@@ -92,6 +95,9 @@ const char *
 version() {
     if (mode == fixture_mode_t::NULL_VERSION) {
         return nullptr;
+    }
+    if (mode == fixture_mode_t::DIFFERENT_VERSION) {
+        return "2.0.0";
     }
     return mode == fixture_mode_t::EMPTY_VERSION ? "" : "1.2.3";
 }
@@ -169,6 +175,8 @@ nixl_plugin_init() {
     case fixture_mode_t::EMPTY_NAME:
     case fixture_mode_t::NULL_VERSION:
     case fixture_mode_t::EMPTY_VERSION:
+    case fixture_mode_t::DIFFERENT_NAME:
+    case fixture_mode_t::DIFFERENT_VERSION:
     case fixture_mode_t::NULL_ENGINE:
     case fixture_mode_t::THROW_CREATE:
     case fixture_mode_t::THROW_CLEANUP:

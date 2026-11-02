@@ -226,6 +226,30 @@ TEST_F(proxyPluginTest, KeepsIdentityReadableAfterFinalization) {
     EXPECT_TRUE(plugin->get_backend_mems().empty());
     ASSERT_NE(initialize(), nullptr);
     EXPECT_STREQ(plugin->get_plugin_name(), "LOADER_FIXTURE");
+    EXPECT_EQ(plugin->get_plugin_name(), name);
+    EXPECT_EQ(plugin->get_plugin_version(), version);
+}
+
+TEST_F(proxyPluginTest, RejectsIdentityChangesOnReinitialization) {
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    const char *name = plugin->get_plugin_name();
+    const char *version = plugin->get_plugin_version();
+    finalize();
+    for (const auto mode : {fixture_mode_t::DIFFERENT_NAME, fixture_mode_t::DIFFERENT_VERSION}) {
+        configure(mode);
+        EXPECT_EQ(initialize(), nullptr);
+        EXPECT_EQ(events_,
+                  (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
+        EXPECT_STREQ(plugin->get_plugin_name(), "unknown");
+        EXPECT_STREQ(plugin->get_plugin_version(), "unknown");
+        EXPECT_STREQ(name, "LOADER_FIXTURE");
+        EXPECT_STREQ(version, "1.2.3");
+    }
+    configure();
+    ASSERT_NE(initialize(), nullptr);
+    EXPECT_EQ(plugin->get_plugin_name(), name);
+    EXPECT_EQ(plugin->get_plugin_version(), version);
 }
 
 TEST_F(proxyPluginTest, BalancesRepeatedInitializationAndReadsConfigurationOnce) {

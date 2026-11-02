@@ -39,6 +39,8 @@ enum class fixture_mode_t {
     EMPTY_NAME,
     NULL_VERSION,
     EMPTY_VERSION,
+    DIFFERENT_NAME,
+    DIFFERENT_VERSION,
     NO_OPTIONS,
     NO_MEMS,
     NO_OPTIONAL,

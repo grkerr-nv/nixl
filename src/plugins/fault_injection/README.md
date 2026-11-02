@@ -71,8 +71,10 @@ Matching initialization/finalization calls own the callback state explicitly,
 avoiding C++ static-destructor ordering during late core shutdown. Identity
 accessors never throw across the plugin ABI; after the last finalization they
 report `unknown` and empty option and memory lists, as core reports for an
-accessor a plugin omits. Name and version strings stay readable for as long as
-the proxy library is loaded.
+accessor a plugin omits. One immutable name/version pair keeps returned pointers
+stable across finalization and reinitialization while the proxy library remains
+loaded. Reinitialization with a different name or version fails; start a new
+process to change backend identity.
 Factory exceptions become logged errors and null results. When discovered as
 `libplugin_UCX.so`, the proxy applies core's `NIXL_UCX_DEEPBIND` policy to the
 genuine library. See [loader limitations](plugin_loader.md).
