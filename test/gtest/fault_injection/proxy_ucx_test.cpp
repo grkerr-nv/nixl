@@ -27,6 +27,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -47,19 +49,42 @@ protected:
         ASSERT_TRUE(file);
         file << "[fault_injection]\nschema_version = 1\nexperiment_id = 'ucx-smoke'\n"
              << "real_plugin_path = '" << REAL_UCX_PLUGIN_PATH << "'\n";
+        save("NIXL_FAULT_CONFIG_FILE", originalConfig_);
+        save("NIXL_PLUGIN_DIR", originalPluginDir_);
         ASSERT_EQ(setenv("NIXL_FAULT_CONFIG_FILE", config.c_str(), 1), 0);
         ASSERT_EQ(setenv("NIXL_PLUGIN_DIR", directory_.c_str(), 1), 0);
     }
 
     void
     TearDown() override {
+        // Restore before removing the directory, so nothing is left pointing into it.
+        restore("NIXL_FAULT_CONFIG_FILE", originalConfig_);
+        restore("NIXL_PLUGIN_DIR", originalPluginDir_);
         if (!directory_.empty()) {
             std::filesystem::remove_all(directory_);
         }
     }
 
 private:
+    static void
+    save(const char *name, std::optional<std::string> &original) {
+        if (const char *value = std::getenv(name)) {
+            original = value;
+        }
+    }
+
+    static void
+    restore(const char *name, const std::optional<std::string> &original) {
+        if (original) {
+            setenv(name, original->c_str(), 1);
+        } else {
+            unsetenv(name);
+        }
+    }
+
     std::filesystem::path directory_;
+    std::optional<std::string> originalConfig_;
+    std::optional<std::string> originalPluginDir_;
 };
 
 TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
@@ -94,7 +119,9 @@ TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         status = sender.getXferStatus(request);
     }
-    EXPECT_EQ(status, NIXL_SUCCESS);
+    // Stop here on a timeout: releasing and deregistering under an in-flight transfer
+    // would hand UCX freed memory.
+    ASSERT_EQ(status, NIXL_SUCCESS);
     EXPECT_EQ(destination, source);
     EXPECT_EQ(sender.releaseXferReq(request), NIXL_SUCCESS);
     EXPECT_EQ(sender.invalidateRemoteMD(peer), NIXL_SUCCESS);
