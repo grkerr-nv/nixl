@@ -99,23 +99,7 @@ protected:
     void
     configure(fixture_mode_t mode = fixture_mode_t::VALID) {
         events_.clear();
-        configure_(mode,
-                   {this,
-                    [](void *context, fixture_event_t event, const nixlBackendInitParams *params) {
-                        auto &test = *static_cast<proxyPluginTest *>(context);
-                        test.events_.push_back(event);
-                        if (event == fixture_event_t::CREATE) {
-                            test.createParams_ = params;
-                        }
-                    },
-                    [](void *context, nixlBackendEngine *engine) {
-                        static_cast<proxyPluginTest *>(context)->genuine_ =
-                            dynamic_cast<mocks::GMockBackendEngine *>(engine);
-                        auto &test = *static_cast<proxyPluginTest *>(context);
-                        if (test.changeParams_) {
-                            test.custom_["caller"] = "changed after genuine initialization";
-                        }
-                    }});
+        configure_(mode, {this, recordEvent, onEngineCreated});
     }
 
     void
@@ -158,6 +142,24 @@ protected:
     bool changeParams_ = false;
 
 private:
+    static void
+    recordEvent(void *context, fixture_event_t event, const nixlBackendInitParams *params) {
+        auto &test = *static_cast<proxyPluginTest *>(context);
+        test.events_.push_back(event);
+        if (event == fixture_event_t::CREATE) {
+            test.createParams_ = params;
+        }
+    }
+
+    static void
+    onEngineCreated(void *context, nixlBackendEngine *engine) {
+        auto &test = *static_cast<proxyPluginTest *>(context);
+        test.genuine_ = dynamic_cast<mocks::GMockBackendEngine *>(engine);
+        if (test.changeParams_) {
+            test.custom_["caller"] = "changed after genuine initialization";
+        }
+    }
+
     std::optional<std::string> originalConfig_;
     void *fixture_ = nullptr;
     void *proxy_ = nullptr;
