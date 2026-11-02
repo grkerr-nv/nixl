@@ -80,6 +80,12 @@ change backend identity. When discovered as `libplugin_UCX.so`, the proxy applie
 core's `NIXL_UCX_DEEPBIND` policy to the genuine library. See
 [loader limitations](plugin_loader.md).
 
+One mutex is held across the genuine plugin's `nixl_plugin_init` and
+`nixl_plugin_fini`, so those never overlap. Known gap: an engine outliving the
+last finalization finalizes the genuine plugin from its own thread without that
+lock, so a concurrent initialization can still overlap it. Destroy engines before
+reinitializing a backend from another thread.
+
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must
 match the genuine backend name.
