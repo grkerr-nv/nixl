@@ -277,20 +277,15 @@ TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
     std::filesystem::remove(configPath_);
     EXPECT_EQ(initialize(), nullptr);
     const std::string base = "[fault_injection]\nschema_version = 1\nexperiment_id = 'test'\n";
+    // fault_config_test covers the schema vocabulary and plugin_loader_test the loader's
+    // own failures. Keep one of each here to show the proxy reports them instead of
+    // throwing, plus the rule rejection, which is the proxy's own rule.
     for (const auto &contents : std::vector<std::string>{
              "invalid TOML !",
-             "[other]\n",
-             "[fault_injection]\nschema_version = 2\n",
-             "[fault_injection]\nschema_version = 1\n",
-             base + "real_plugin_path = 'relative.so'\n",
              base + "real_plugin_path = '/absent/plugin.so'\n",
-             base + "real_plugin_path = '" + PROXY_PLUGIN_PATH + "'\n",
-             base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nunknown = 1\n",
-             base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nrules = [{}]\n",
              base + "real_plugin_path = '" + LOADER_FIXTURE_PATH +
                  "'\n[[fault_injection.rules]]\nid = 'first-connect'\nmethod = 'connect'\n"
-                 "inject_on_occurrence = 1\nstatus = 'NIXL_ERR_BACKEND'\n",
-             base + "real_plugin_path = '" + LOADER_FIXTURE_PATH + "'\nrules = 'invalid'\n"}) {
+                 "inject_on_occurrence = 1\nstatus = 'NIXL_ERR_BACKEND'\n"}) {
         SCOPED_TRACE(contents);
         writeConfig(contents);
         EXPECT_EQ(initialize(), nullptr);
@@ -298,14 +293,6 @@ TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
     EXPECT_TRUE(events_.empty());
     writeConfig();
     EXPECT_NE(initialize(), nullptr);
-}
-
-TEST_F(proxyPluginTest, RejectsUnknownRootFieldsBeforeLoadingGenuinePlugin) {
-    writeConfig("unknown = 1\n[fault_injection]\nschema_version = 1\n"
-                "experiment_id = 'inert-test'\nreal_plugin_path = '" +
-                std::string(LOADER_FIXTURE_PATH) + "'\n");
-    EXPECT_EQ(initialize(), nullptr);
-    EXPECT_TRUE(events_.empty());
 }
 
 TEST_F(proxyPluginTest, ContainsFactoryFailuresAndCleansUpWrapperConstructionFailure) {
