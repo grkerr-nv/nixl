@@ -88,7 +88,8 @@ reinitializing a backend from another thread.
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must
-match the genuine backend name.
+match the genuine backend name: engine creation rejects a genuine plugin whose
+name differs from the one core looked up.
 
 ## Forwarding helper
 

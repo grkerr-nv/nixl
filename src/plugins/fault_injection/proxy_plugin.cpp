@@ -142,6 +142,14 @@ nixlBackendEngine *
 createEngine(const nixlBackendInitParams *params) {
     return callGuarded("Cannot create fault proxy engine", [params]() -> nixlBackendEngine * {
         const auto owner = getState();
+        // params->type is the name core looked up to find this library. Refuse to pass off
+        // some other backend under it; forwardingEngine cannot tell, since it compares the
+        // wrapped engine against the same params.
+        if (params && params->type != owner->loader.getName()) {
+            throw std::invalid_argument("Fault proxy was discovered as '" + params->type +
+                                        "' but real_plugin_path provides '" +
+                                        owner->loader.getName() + "'");
+        }
         // Move the unique owner with its genuine plugin deleter and lifetime.
         return new nixl::fault::forwardingEngine(params, owner->loader.createEngine(params));
     });

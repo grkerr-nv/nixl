@@ -325,6 +325,14 @@ TEST_F(proxyPluginTest, ContainsFactoryFailuresAndCleansUpWrapperConstructionFai
                                             fixture_event_t::ENGINE_DESTROYED}));
 }
 
+TEST_F(proxyPluginTest, RejectsGenuinePluginThatIsNotTheDiscoveredBackend) {
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    configure(fixture_mode_t::DIFFERENT_NAME);
+    EXPECT_EQ(plugin->create_engine(&params_), nullptr);
+    EXPECT_TRUE(events_.empty());
+}
+
 TEST_F(proxyPluginTest, ContainsOptionAndMemoryAccessorExceptions) {
     auto *plugin = initialize();
     ASSERT_NE(plugin, nullptr);
