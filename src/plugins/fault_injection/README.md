@@ -68,16 +68,17 @@ The proxy reads configuration once per initialized lifetime. Matching calls to
 `nixl_plugin_init` and `nixl_plugin_fini` share that state. Genuine engines retain
 their plugin until their destruction, including after proxy finalization.
 Matching initialization/finalization calls own the callback state explicitly,
-avoiding C++ static-destructor ordering during late core shutdown. Identity
-accessors never throw across the plugin ABI; after the last finalization they
-report `unknown` and empty option and memory lists, as core reports for an
-accessor a plugin omits. One immutable name/version pair keeps returned pointers
-stable across finalization and reinitialization while the proxy library remains
-loaded. Reinitialization with a different name or version fails; start a new
-process to change backend identity.
-Factory exceptions become logged errors and null results. When discovered as
-`libplugin_UCX.so`, the proxy applies core's `NIXL_UCX_DEEPBIND` policy to the
-genuine library. See [loader limitations](plugin_loader.md).
+avoiding C++ static-destructor ordering during late core shutdown. No plugin ABI
+entry point throws across the boundary: initialization, engine creation, and the
+option and memory accessors turn exceptions into a logged error and an empty
+result. After the last finalization the identity accessors report `unknown` and
+the option and memory lists are empty, as core reports for an accessor a plugin
+omits. One immutable name/version pair keeps returned pointers stable across
+finalization and reinitialization while the proxy library remains loaded.
+Reinitialization with a different name or version fails; start a new process to
+change backend identity. When discovered as `libplugin_UCX.so`, the proxy applies
+core's `NIXL_UCX_DEEPBIND` policy to the genuine library. See
+[loader limitations](plugin_loader.md).
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must

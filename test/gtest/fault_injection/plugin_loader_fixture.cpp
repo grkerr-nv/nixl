@@ -104,11 +104,17 @@ version() {
 
 nixl_b_params_t
 options() {
+    if (mode == fixture_mode_t::THROW_OPTIONAL) {
+        throw std::runtime_error("fixture options failed");
+    }
     return {{"transport", "fixture"}};
 }
 
 nixl_mem_list_t
 mems() {
+    if (mode == fixture_mode_t::THROW_OPTIONAL) {
+        throw std::runtime_error("fixture mems failed");
+    }
     return {DRAM_SEG, VRAM_SEG};
 }
 
@@ -181,6 +187,7 @@ nixl_plugin_init() {
     case fixture_mode_t::THROW_CREATE:
     case fixture_mode_t::THROW_CLEANUP:
     case fixture_mode_t::THROW_UNKNOWN_CLEANUP:
+    case fixture_mode_t::THROW_OPTIONAL:
     case fixture_mode_t::ENGINE_INIT_ERROR:
         break;
     }

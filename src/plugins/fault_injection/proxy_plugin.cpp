@@ -119,32 +119,47 @@ getState() {
     return owner;
 }
 
+// Core calls the plugin ABI without an exception handler, and the genuine plugin's
+// callbacks may throw. Log the failure and report an empty result instead of unwinding
+// across the boundary.
+template<class T>
+auto
+callGuarded(const char *failure, T call) -> decltype(call()) {
+    try {
+        return call();
+    }
+    catch (const std::exception &error) {
+        NIXL_ERROR << failure << ": " << error.what();
+    }
+    catch (...) {
+        NIXL_ERROR << failure << ": unknown exception";
+    }
+    return {};
+}
+
 nixlBackendEngine *
 createEngine(const nixlBackendInitParams *params) {
-    try {
+    return callGuarded("Cannot create fault proxy engine", [params]() -> nixlBackendEngine * {
         const auto owner = getState();
         // Move the unique owner with its genuine plugin deleter and lifetime.
         return new nixl::fault::forwardingEngine(params, owner->loader.createEngine(params));
-    }
-    catch (const std::exception &error) {
-        NIXL_ERROR << "Cannot create fault proxy engine: " << error.what();
-    }
-    catch (...) {
-        NIXL_ERROR << "Cannot create fault proxy engine: unknown exception";
-    }
-    return nullptr;
+    });
 }
 
 nixl_b_params_t
 backendOptions() {
-    const auto owner = tryGetState();
-    return owner ? owner->loader.getBackendOptions() : nixl_b_params_t{};
+    return callGuarded("Cannot read fault proxy backend options", [] {
+        const auto owner = tryGetState();
+        return owner ? owner->loader.getBackendOptions() : nixl_b_params_t{};
+    });
 }
 
 nixl_mem_list_t
 backendMems() {
-    const auto owner = tryGetState();
-    return owner ? owner->loader.getBackendMems() : nixl_mem_list_t{};
+    return callGuarded("Cannot read fault proxy backend memory types", [] {
+        const auto owner = tryGetState();
+        return owner ? owner->loader.getBackendMems() : nixl_mem_list_t{};
+    });
 }
 
 nixlBackendPlugin plugin = {
@@ -161,7 +176,7 @@ nixlBackendPlugin plugin = {
 
 extern "C" NIXL_PLUGIN_EXPORT nixlBackendPlugin *
 nixl_plugin_init() {
-    try {
+    return callGuarded("Cannot initialize fault proxy", []() -> nixlBackendPlugin * {
         const std::lock_guard lock(state_mutex);
         if (!state) {
             auto created = std::make_shared<proxyState>(readPluginPath());
@@ -174,14 +189,7 @@ nixl_plugin_init() {
         }
         ++initializations;
         return &plugin;
-    }
-    catch (const std::exception &error) {
-        NIXL_ERROR << "Cannot initialize fault proxy: " << error.what();
-    }
-    catch (...) {
-        NIXL_ERROR << "Cannot initialize fault proxy: unknown exception";
-    }
-    return nullptr;
+    });
 }
 
 extern "C" NIXL_PLUGIN_EXPORT void

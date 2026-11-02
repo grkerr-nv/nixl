@@ -325,6 +325,15 @@ TEST_F(proxyPluginTest, ContainsFactoryFailuresAndCleansUpWrapperConstructionFai
                                             fixture_event_t::ENGINE_DESTROYED}));
 }
 
+TEST_F(proxyPluginTest, ContainsOptionAndMemoryAccessorExceptions) {
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    configure(fixture_mode_t::THROW_OPTIONAL);
+    // Core calls these without a handler, so an exception must not cross the plugin ABI.
+    EXPECT_TRUE(plugin->get_backend_options().empty());
+    EXPECT_TRUE(plugin->get_backend_mems().empty());
+}
+
 // Run in its own process: the core plugin manager retains its loaded plugin until process exit.
 TEST_F(proxyPluginTest, CoreDiscovery) {
     auto &manager = nixlPluginManager::getInstance();

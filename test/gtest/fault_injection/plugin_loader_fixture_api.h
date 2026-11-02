@@ -44,6 +44,7 @@ enum class fixture_mode_t {
     NO_OPTIONS,
     NO_MEMS,
     NO_OPTIONAL,
+    THROW_OPTIONAL,
     NULL_ENGINE,
     THROW_CREATE,
     THROW_CLEANUP,
