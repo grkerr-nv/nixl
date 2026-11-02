@@ -91,8 +91,10 @@ constexpr const char *unknown_identity = "unknown";
 // initialization and finalization so the two cannot overlap.
 // Engine forwarding does not take this lock; identity getters use atomics.
 std::mutex state_mutex;
-// Core may finalize plugins after DSO globals have been destroyed at process exit.
-// Own the slot explicitly between init/fini instead of registering a static destructor.
+// Core may finalize plugins after DSO globals have been destroyed at process exit, so the
+// slot is owned explicitly between init/fini rather than by a static destructor. The one
+// static with a destructor is retainIdentity's pair below; the accessors stop pointing
+// into it at the last finalization, so its teardown order does not matter.
 std::shared_ptr<proxyState> *state = nullptr;
 size_t initializations = 0;
 // Identity the plugin ABI returns as const char *. Core reads it through a handle it

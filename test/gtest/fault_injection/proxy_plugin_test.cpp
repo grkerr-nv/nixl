@@ -233,15 +233,18 @@ TEST_F(proxyPluginTest, RejectsIdentityChangesOnReinitialization) {
     const char *version = plugin->get_plugin_version();
     finalize();
     for (const auto mode : {fixture_mode_t::DIFFERENT_NAME, fixture_mode_t::DIFFERENT_VERSION}) {
+        SCOPED_TRACE(mode == fixture_mode_t::DIFFERENT_NAME ? "DIFFERENT_NAME" :
+                                                              "DIFFERENT_VERSION");
         configure(mode);
         EXPECT_EQ(initialize(), nullptr);
         EXPECT_EQ(events_,
                   (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
         EXPECT_STREQ(plugin->get_plugin_name(), "unknown");
         EXPECT_STREQ(plugin->get_plugin_version(), "unknown");
-        EXPECT_STREQ(name, "LOADER_FIXTURE");
-        EXPECT_STREQ(version, "1.2.3");
     }
+    // The strings handed out before the rejected reinitializations stay readable.
+    EXPECT_STREQ(name, "LOADER_FIXTURE");
+    EXPECT_STREQ(version, "1.2.3");
     configure();
     ASSERT_NE(initialize(), nullptr);
     EXPECT_EQ(plugin->get_plugin_name(), name);
