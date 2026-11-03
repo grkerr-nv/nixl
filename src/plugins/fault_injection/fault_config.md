@@ -59,11 +59,9 @@ fault, so the pairing is asserted rather than defaulted.
 
 Each evaluator has independent counters. Only matching methods and operations
 advance them, and all matching rules advance even when another rule fires on the
-same call. Evaluation takes no lock: a call matching no rule reads only the
-immutable definitions, and a spent rule costs one relaxed atomic load, so the
-backend path pays nothing for rules that cannot fire. Matching rules count down
-atomically, so exactly one caller can take a rule from 1 to 0 and select it.
-Returned rule pointers remain valid until the evaluator is destroyed.
+same call. Concurrent calls are safe: exactly one caller takes a rule to its
+configured occurrence and receives it. Returned rule pointers remain valid until
+the evaluator is destroyed.
 
 Counters live in the evaluator, so a second evaluator over the same configuration
 restarts them. The proxy constructs one per loaded plugin and shares it with every
