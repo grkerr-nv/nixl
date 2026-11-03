@@ -41,6 +41,15 @@ class ruleEvaluator {
 public:
     explicit ruleEvaluator(const faultConfig &config);
 
+    // Engines hold a reference to this evaluator, and moving it would relocate the rules
+    // they point at, so it stays put once constructed.
+    ruleEvaluator(const ruleEvaluator &) = delete;
+    ruleEvaluator &
+    operator=(const ruleEvaluator &) = delete;
+    ruleEvaluator(ruleEvaluator &&) = delete;
+    ruleEvaluator &
+    operator=(ruleEvaluator &&) = delete;
+
     /** Count one backend call and return its firing rule, or nullptr to forward.
      * Pass the operation the call carried, or std::nullopt for the methods that take none;
      * carriesOperation(method) says which, and the pairing is not optional because a
