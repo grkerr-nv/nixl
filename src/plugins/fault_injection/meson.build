@@ -31,7 +31,7 @@ fault_config_lib = static_library('nixl_fault_config',
     'rule_evaluator.cpp',
     'table_scope.cpp',
     include_directories: nixl_inc_dirs,
-    dependencies: [tomlplusplus_dep, thread_dep],
+    dependencies: tomlplusplus_dep,
     build_by_default: get_option('build_fault_injection'),
     gnu_symbol_visibility: 'hidden',
     pic: true)
@@ -41,7 +41,7 @@ fault_config_lib = static_library('nixl_fault_config',
 nixl_fault_config_dep = declare_dependency(
     link_with: fault_config_lib,
     include_directories: [nixl_inc_dirs, include_directories('.')],
-    dependencies: [tomlplusplus_dep, thread_dep])
+    dependencies: tomlplusplus_dep)
 
 # Fail the build, not a test run, when the proxy stops forwarding a backend virtual.
 forwarding_interface_check = custom_target('check_forwarding_engine_interface',

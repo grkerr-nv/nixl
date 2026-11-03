@@ -21,16 +21,17 @@
 #include "fault_config.h"
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace nixl::fault {
 
 /** Owns validated rules and independent occurrence counters for one runtime.
- * Concurrent calls share those counters; each rule fires at most once.
+ * Concurrent calls share those counters; each rule fires at most once. Evaluation is
+ * lock free: a nonmatching call reads no shared state and a spent rule costs one
+ * relaxed load, so the backend path pays nothing for rules that cannot fire.
  */
 class ruleEvaluator {
 public:
@@ -45,15 +46,22 @@ public:
 
 private:
     struct ruleState {
+        ruleState(faultRule definition, uint64_t count)
+            : rule(std::move(definition)),
+              remaining(count) {}
+
+        // An atomic member leaves ruleState uncopyable, which std::vector needs for
+        // growth. Construction is single threaded, so moving the counter's value is safe.
+        ruleState(ruleState &&other) noexcept
+            : rule(std::move(other.rule)),
+              remaining(other.remaining.load(std::memory_order_relaxed)) {}
+
         faultRule rule;
-        uint64_t remaining;
+        // Counts down to zero once; the thread that claims the last decrement fires.
+        std::atomic<uint64_t> remaining;
     };
 
     std::vector<ruleState> rules_;
-    // Monotonic count for the unlocked spent-rules bypass; it publishes no other state.
-    std::atomic<std::size_t> activeRules_;
-    // Protects occurrence updates and one-shot selection; rule definitions never change.
-    std::mutex mutex_;
 };
 
 } // namespace nixl::fault

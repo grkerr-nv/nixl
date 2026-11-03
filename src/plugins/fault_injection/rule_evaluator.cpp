@@ -17,41 +17,35 @@
 
 #include "rule_evaluator.h"
 
-#include <algorithm>
-
 namespace nixl::fault {
 
-ruleEvaluator::ruleEvaluator(const faultConfig &config) : activeRules_(config.getRules().size()) {
+ruleEvaluator::ruleEvaluator(const faultConfig &config) {
     rules_.reserve(config.getRules().size());
     for (const auto &rule : config.getRules()) {
-        rules_.push_back({.rule = rule, .remaining = rule.injectOnOccurrence});
+        rules_.emplace_back(rule, rule.injectOnOccurrence);
     }
 }
 
 const faultRule *
 ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation) {
-    if (activeRules_.load(std::memory_order_relaxed) == 0) {
-        return nullptr;
-    }
-    const auto matches = [method, operation](const ruleState &rule_state) {
-        return rule_state.rule.method == method &&
-            (!rule_state.rule.operation || rule_state.rule.operation == operation);
-    };
-    // Only immutable rule definitions are read before locking, never the countdowns.
-    if (std::none_of(rules_.begin(), rules_.end(), matches)) {
-        return nullptr;
-    }
-    const std::lock_guard lock(mutex_);
     const faultRule *firing = nullptr;
     for (auto &rule_state : rules_) {
-        if (!matches(rule_state) || rule_state.remaining == 0) {
+        // Rule definitions are immutable, so a call that matches nothing touches no
+        // shared state at all.
+        if (rule_state.rule.method != method ||
+            (rule_state.rule.operation && rule_state.rule.operation != operation)) {
             continue;
         }
-        // Count down to zero so spent rules cannot wrap around and fire again.
-        // The mutex lets only one caller make the transition from 1 to 0.
-        if (--rule_state.remaining == 0) {
+        // Stop at zero so a spent rule cannot wrap around and fire again. Exactly one
+        // caller can win the decrement from 1, and that caller fires the rule. Relaxed
+        // suffices: the counter publishes no state, and the rule it guards was written
+        // before any caller could reach this evaluator.
+        uint64_t remaining = rule_state.remaining.load(std::memory_order_relaxed);
+        while (remaining != 0 &&
+               !rule_state.remaining.compare_exchange_weak(
+                   remaining, remaining - 1, std::memory_order_relaxed)) {}
+        if (remaining == 1) {
             firing = &rule_state.rule;
-            activeRules_.fetch_sub(1, std::memory_order_relaxed);
         }
     }
     return firing;

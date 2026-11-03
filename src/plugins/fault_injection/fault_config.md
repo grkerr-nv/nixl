@@ -124,10 +124,11 @@ const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, 
 
 Each evaluator has independent counters. Only matching methods and operations
 advance them, and all matching rules advance even when another rule fires on the
-same call. Calls with no matching method/operation skip the mutex, as do all
-calls once every rule is spent. Matching calls share a mutex around counting
-and selection: only one caller can decrement a rule from 1 to 0 and select it;
-later callers skip its zero counter. Returned rule pointers remain valid until
+same call. Evaluation takes no lock: a call matching no rule reads only the
+immutable definitions, and a spent rule costs one relaxed atomic load, so the
+backend path pays nothing for rules that cannot fire. Matching rules count down
+atomically, so exactly one caller can take a rule from 1 to 0 and select it.
+Returned rule pointers remain valid until
 the evaluator is destroyed. Construct a new evaluator for fresh counters.
 
 The proxy still rejects nonempty rules. Connecting this evaluator to backend
