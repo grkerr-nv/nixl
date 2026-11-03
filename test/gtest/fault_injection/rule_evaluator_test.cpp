@@ -142,6 +142,7 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
     std::atomic<unsigned> connections{0}, disconnections{0};
     std::barrier start(thread_count);
     std::vector<std::jthread> workers;
+    workers.reserve(thread_count);
     for (int index = 0; index < thread_count; ++index) {
         workers.emplace_back([&] {
             start.arrive_and_wait();
