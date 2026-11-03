@@ -69,6 +69,13 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
     // A method and operation that disagree match no rule, so the call injects nothing and
     // the run looks clean. The parser holds rule definitions to the same pairing.
     assert(operation.has_value() == carriesOperation(method));
+    // One call decrements every counter that matches it, and grouping those decrements is what
+    // this lock is for. Each decrement is atomic on its own, but two concurrent calls can
+    // interleave so that one counter ranks them A then B while another ranks them B then A.
+    // The call that comes first on both then claims two rules, and only one status can be
+    // returned, so the other rule's counter reaches zero without its status ever reaching a
+    // caller. These rules are one-shot, so it is gone: the run quietly injects one fault fewer
+    // than the configuration asked for, with nothing to show it happened.
     std::unique_lock lock(orderingMutex_, std::defer_lock);
     if (std::find(serializedMethods_.begin(), serializedMethods_.end(), method) !=
         serializedMethods_.end()) {
@@ -81,7 +88,6 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
         if (!active) {
             return nullptr;
         }
-        // Independent atomic counters alone can order the same two calls differently.
         lock.lock();
     }
     const faultRule *firing = nullptr;
