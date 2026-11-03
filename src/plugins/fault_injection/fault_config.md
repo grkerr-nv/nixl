@@ -63,6 +63,21 @@ checks existence and plugin validity.
 `rules` may be omitted or `[]` for an inert configuration. Each rule requires a
 unique `id`, `method`, a positive `inject_on_occurrence`, and `status`.
 
+Omitting `operation` makes a rule count both reads and writes. Replace the rule
+in the example above with:
+
+```toml
+[[fault_injection.rules]]
+id = "fail-second-post"
+method = "postXfer"
+inject_on_occurrence = 2
+status = "NIXL_ERR_BACKEND"
+```
+
+The evaluator selects this rule on the second `postXfer` call. For example, a read
+followed by a write selects it on the write. Runtime injection is not wired into
+the proxy yet, so the proxy still rejects configurations with nonempty rules.
+
 Rules must not fire on the same call. Rules with the same method and operation
 selector conflict only at the same occurrence; opposite transfer directions
 never conflict. A rule without an operation counts both directions, so it can
