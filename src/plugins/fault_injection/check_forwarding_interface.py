@@ -45,7 +45,7 @@ if expected != actual:
 status_methods = Counter(re.findall(r"\bvirtual\s+nixl_status_t\s+(\w+)\s*\(", backend))
 injected_methods = Counter(
     re.findall(
-        r"\bnixl_status_t\s+(\w+)\s*\([^;{}]*\)\s*(?:const\s+)?override\s*"
+        r"\bnixl_status_t\s+(\w+)\s*\([^;{}]*\)[^;{}]*?\boverride\s*"
         r"\{\s*if\s*\(const\s+auto\s+status\s*=\s*injectedStatus\(",
         forwarder,
     )
