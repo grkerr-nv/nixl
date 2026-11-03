@@ -47,13 +47,15 @@ namespace {
 ruleEvaluator::ruleEvaluator(const faultConfig &config) {
     rules_.reserve(config.getRules().size());
     for (const auto &rule : config.getRules()) {
-        const bool shares_calls =
-            std::any_of(rules_.begin(), rules_.end(), [&rule](const auto &other) {
-                return other.rule.method == rule.method &&
-                    (!other.rule.operation || !rule.operation ||
-                     other.rule.operation == rule.operation);
+        // Different firing occurrences can still count the same backend calls.
+        const bool shares_matching_calls =
+            std::any_of(rules_.begin(), rules_.end(), [&rule](const auto &existing_state) {
+                return existing_state.rule.method == rule.method &&
+                    (!existing_state.rule.operation || !rule.operation ||
+                     existing_state.rule.operation == rule.operation);
             });
-        if (shares_calls &&
+        // Record each affected method once; its counters must agree on concurrent call order.
+        if (shares_matching_calls &&
             std::find(serializedMethods_.begin(), serializedMethods_.end(), rule.method) ==
                 serializedMethods_.end()) {
             serializedMethods_.push_back(rule.method);

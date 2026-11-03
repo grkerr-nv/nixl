@@ -137,6 +137,7 @@ private:
     faultConfig() = default;
 
     std::string experimentId_;
+    // CRC32C checksum of the TOML bytes, used to correlate configuration and injection logs.
     std::string digest_;
     std::filesystem::path realPluginPath_;
     std::vector<faultRule> rules_;
