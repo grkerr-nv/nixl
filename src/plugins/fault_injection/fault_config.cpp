@@ -19,6 +19,7 @@
 
 #include "table_scope.h"
 
+#include <absl/crc/crc32c.h>
 #include <toml++/toml.hpp>
 
 #include <fstream>
@@ -258,13 +259,9 @@ faultConfig::parse(std::string_view text) {
         section.rejectAndThrow("real_plugin_path", "must name a file, not a directory");
     }
     config.rules_ = parseRules(section);
-    uint64_t digest = 14695981039346656037ULL;
-    for (const unsigned char byte : text) {
-        digest ^= byte;
-        digest *= 1099511628211ULL;
-    }
+    const auto digest = static_cast<uint32_t>(absl::ComputeCrc32c(text));
     std::ostringstream fingerprint;
-    fingerprint << "fnv1a64:" << std::hex << std::setfill('0') << std::setw(16) << digest;
+    fingerprint << "crc32c:" << std::hex << std::setfill('0') << std::setw(8) << digest;
     config.digest_ = fingerprint.str();
     return config;
 }

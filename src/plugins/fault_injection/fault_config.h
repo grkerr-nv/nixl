@@ -117,7 +117,7 @@ public:
         return experimentId_;
     }
 
-    /** Stable FNV-1a fingerprint of the original TOML bytes, for run correlation. */
+    /** Stable CRC32C checksum of the original TOML bytes, for run correlation. */
     [[nodiscard]] const std::string &
     getDigest() const {
         return digest_;

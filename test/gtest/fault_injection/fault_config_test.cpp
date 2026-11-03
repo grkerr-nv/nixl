@@ -87,7 +87,8 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
 TEST(faultConfigTest, FingerprintsExactConfigurationBytes) {
     const auto digest = faultConfig::parse(config_text).getDigest();
     EXPECT_EQ(digest, faultConfig::parse(config_text).getDigest());
-    EXPECT_TRUE(digest.starts_with("fnv1a64:"));
+    EXPECT_TRUE(digest.starts_with("crc32c:"));
+    EXPECT_EQ(digest.size(), std::string_view("crc32c:").size() + 8);
     EXPECT_NE(digest, faultConfig::parse(std::string(config_text) + "\n").getDigest());
 }
 

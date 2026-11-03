@@ -38,8 +38,9 @@ const auto &rules = config.getRules();
 `parse` takes TOML text instead of a path. Both copy what they need, so the
 source can change or disappear afterwards.
 
-`getDigest()` returns a stable `fnv1a64:` fingerprint of the original TOML bytes
-for run correlation. Whitespace changes alter it; it is not a cryptographic hash.
+`getDigest()` returns a stable `crc32c:` checksum with eight hexadecimal digits,
+computed by Abseil from the original TOML bytes for run correlation. Whitespace
+changes alter it; it is not a cryptographic hash.
 
 The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
 lifetime and uses `getRealPluginPath()` to load the genuine backend.

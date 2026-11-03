@@ -84,7 +84,7 @@ Set `NIXL_LOG_LEVEL=INFO` before starting the process to capture configuration,
 rule, and injection records. `NIXL_LOG_FILE` can also mirror them to a file.
 Each record carries `experiment_id` and `config_digest`; injection records add
 `rule_id`, `method`, the actual `operation`, `occurrence`, and `status`. String
-values are quoted and escaped. The digest is a stable FNV-1a fingerprint of the
+values are quoted and escaped. The digest is an Abseil CRC32C checksum of the
 original TOML bytes for run correlation, not a cryptographic integrity check.
 
 The proxy reads configuration once per initialized lifetime. Matching calls to
