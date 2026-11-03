@@ -37,9 +37,7 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
             continue;
         }
         // Stop at zero so a spent rule cannot wrap around and fire again. Exactly one
-        // caller can win the decrement from 1, and that caller fires the rule. Relaxed
-        // suffices: the counter publishes no state, and the rule it guards was written
-        // before any caller could reach this evaluator.
+        // caller can win the decrement from 1, and that caller fires the rule.
         uint64_t remaining = rule_state.remaining.load(std::memory_order_relaxed);
         while (remaining != 0 &&
                !rule_state.remaining.compare_exchange_weak(
