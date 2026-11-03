@@ -93,6 +93,23 @@ Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 match the genuine backend name: engine creation rejects a genuine plugin whose
 name differs from the one core looked up.
 
+## Rule without an operation
+
+Omitting `operation` makes a rule count both reads and writes. Replace `rules = []`
+in the configuration above with:
+
+```toml
+[[fault_injection.rules]]
+id = "fail-second-post"
+method = "postXfer"
+inject_on_occurrence = 2
+status = "NIXL_ERR_BACKEND"
+```
+
+The evaluator selects this rule on the second `postXfer` call. For example, a read
+followed by a write selects it on the write. Runtime injection is not wired into
+the proxy yet, so the proxy still rejects configurations with nonempty rules.
+
 ## Forwarding helper
 
 `forwarding_engine.h` provides `nixl::fault::forwardingEngine`, a header-only
