@@ -201,6 +201,8 @@ namespace {
         }
     }
 
+    // These tables and the fallback reference string literals; returned views stay
+    // valid while this library remains loaded.
     template<class T, size_t N>
     std::string_view
     symbolName(T symbol, const std::pair<std::string_view, T> (&symbols)[N]) {
