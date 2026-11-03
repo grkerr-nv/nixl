@@ -25,8 +25,7 @@ namespace {
 
     // Decrement unless the counter already reached zero, and report the value it held
     // beforehand. Only the caller that sees 1 took the counter to zero, so only that caller
-    // fires the rule. A plain fetch_sub cannot stop at zero: it would wrap a spent rule
-    // around to UINT64_MAX and let it fire again.
+    // fires the rule.
     uint64_t
     claimOccurrence(std::atomic<uint64_t> &remaining) {
         uint64_t current = remaining.load(std::memory_order_relaxed);
