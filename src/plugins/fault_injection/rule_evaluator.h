@@ -38,11 +38,14 @@ public:
     explicit ruleEvaluator(const faultConfig &config);
 
     /** Count one backend call and return its firing rule, or nullptr to forward.
+     * Pass the operation the call carried, or std::nullopt for the methods that take none;
+     * carriesOperation(method) says which, and the pairing is not optional because a
+     * missing operation silently matches no rule.
      * Every matching rule advances, including when another rule fires on this call.
      * The returned rule is immutable and remains valid until this evaluator is destroyed.
      */
     [[nodiscard]] const faultRule *
-    evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation = std::nullopt);
+    evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation);
 
 private:
     struct ruleState {

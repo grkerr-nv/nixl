@@ -18,6 +18,7 @@
 #include "rule_evaluator.h"
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 
 namespace nixl::fault {
@@ -51,6 +52,9 @@ ruleEvaluator::ruleEvaluator(const faultConfig &config) {
 
 const faultRule *
 ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation) {
+    // The parser holds rules to the same pairing. A call that disagrees would match no
+    // rule and report a clean run instead of the configured fault.
+    assert(operation.has_value() == carriesOperation(method));
     const faultRule *firing = nullptr;
     for (auto &rule_state : rules_) {
         // Rule definitions are immutable, so a call that matches nothing touches no

@@ -33,6 +33,13 @@
 #include <vector>
 
 namespace nixl::fault {
+
+bool
+carriesOperation(backend_method_t method) {
+    return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
+        method == backend_method_t::ESTIMATE_XFER_COST;
+}
+
 namespace {
 
     constexpr std::pair<std::string_view, backend_method_t> methods[] = {
@@ -89,13 +96,6 @@ namespace {
             message << "Invalid fault configuration TOML: " << error;
             throw std::invalid_argument(message.str());
         }
-    }
-
-    // Opaque request handles expose no transfer operation; these methods take one directly.
-    bool
-    carriesOperation(backend_method_t method) {
-        return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
-            method == backend_method_t::ESTIMATE_XFER_COST;
     }
 
     faultRule

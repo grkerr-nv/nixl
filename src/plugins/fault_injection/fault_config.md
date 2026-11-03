@@ -122,6 +122,11 @@ const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, 
 // nullptr means forward; otherwise rule->status is the configured result to inject.
 ```
 
+Pass the operation the backend call carried, or `std::nullopt` for the methods
+that take none; `carriesOperation` says which, and the two must agree. A missing
+operation matches no rule and would report a clean run instead of the configured
+fault, so the pairing is asserted rather than defaulted.
+
 Each evaluator has independent counters. Only matching methods and operations
 advance them, and all matching rules advance even when another rule fires on the
 same call. Evaluation takes no lock: a call matching no rule reads only the

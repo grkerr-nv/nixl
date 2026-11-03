@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <barrier>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -43,7 +44,7 @@ real_plugin_path = "/not-installed/libplugin_UCX.so"
 
 TEST(ruleEvaluatorTest, ForwardsWithoutRules) {
     ruleEvaluator evaluator(makeConfig());
-    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT), nullptr);
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT, std::nullopt), nullptr);
     EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE), nullptr);
 }
 
@@ -55,9 +56,8 @@ operation = "NIXL_WRITE"
 inject_on_occurrence = 2
 status = "NIXL_ERR_BACKEND"
 )"));
-    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT), nullptr);
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT, std::nullopt), nullptr);
     EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_READ), nullptr);
-    EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER), nullptr);
     EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE), nullptr);
     const auto *rule = evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE);
     ASSERT_NE(rule, nullptr);
@@ -79,16 +79,16 @@ inject_on_occurrence = 3
 status = "NIXL_ERR_REMOTE_DISCONNECT"
 )");
     ruleEvaluator first(config), second(config);
-    const auto *rule = first.evaluate(backend_method_t::CONNECT);
+    const auto *rule = first.evaluate(backend_method_t::CONNECT, std::nullopt);
     ASSERT_NE(rule, nullptr);
     EXPECT_EQ(rule->id, "first");
     EXPECT_EQ(rule->status, NIXL_SUCCESS);
-    EXPECT_EQ(first.evaluate(backend_method_t::CONNECT), nullptr);
-    rule = first.evaluate(backend_method_t::CONNECT);
+    EXPECT_EQ(first.evaluate(backend_method_t::CONNECT, std::nullopt), nullptr);
+    rule = first.evaluate(backend_method_t::CONNECT, std::nullopt);
     ASSERT_NE(rule, nullptr);
     EXPECT_EQ(rule->id, "third");
-    EXPECT_EQ(first.evaluate(backend_method_t::CONNECT), nullptr);
-    rule = second.evaluate(backend_method_t::CONNECT);
+    EXPECT_EQ(first.evaluate(backend_method_t::CONNECT, std::nullopt), nullptr);
+    rule = second.evaluate(backend_method_t::CONNECT, std::nullopt);
     ASSERT_NE(rule, nullptr);
     EXPECT_EQ(rule->id, "first");
 }
@@ -146,10 +146,10 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
         workers.emplace_back([&] {
             start.arrive_and_wait();
             for (int call = 0; call < calls_per_method_per_thread; ++call) {
-                if (evaluator.evaluate(backend_method_t::CONNECT)) {
+                if (evaluator.evaluate(backend_method_t::CONNECT, std::nullopt)) {
                     connections.fetch_add(1, std::memory_order_relaxed);
                 }
-                if (evaluator.evaluate(backend_method_t::DISCONNECT)) {
+                if (evaluator.evaluate(backend_method_t::DISCONNECT, std::nullopt)) {
                     disconnections.fetch_add(1, std::memory_order_relaxed);
                 }
             }
@@ -160,8 +160,8 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
     }
     EXPECT_EQ(connections.load(), 1U);
     EXPECT_EQ(disconnections.load(), 1U);
-    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT), nullptr);
-    EXPECT_EQ(evaluator.evaluate(backend_method_t::DISCONNECT), nullptr);
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT, std::nullopt), nullptr);
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::DISCONNECT, std::nullopt), nullptr);
 }
 
 } // namespace

@@ -52,6 +52,15 @@ enum class backend_method_t {
     ESTIMATE_XFER_COST,
 };
 
+/** Whether the method takes a transfer operation argument.
+ *
+ * Opaque request handles expose no transfer operation; these methods take one directly.
+ * A rule may name an operation only for these methods, and a caller evaluating one must
+ * supply the operation it was called with.
+ */
+[[nodiscard]] bool
+carriesOperation(backend_method_t method);
+
 /** A validated rule definition. Occurrence counters belong to the runtime evaluator.
  *
  * Rules within one configuration never overlap, so at most one rule fires on any call and
