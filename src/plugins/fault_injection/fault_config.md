@@ -78,13 +78,10 @@ The evaluator selects this rule on the second `postXfer` call. For example, a re
 followed by a write selects it on the write. Runtime injection is not wired into
 the proxy yet, so the proxy still rejects configurations with nonempty rules.
 
-Rules must not fire on the same call. Rules with the same method and operation
-selector conflict only at the same occurrence; opposite transfer directions
-never conflict. A rule without an operation counts both directions, so it can
-collide with an operation-specific rule at an earlier or equal occurrence. For
-example, wildcard occurrence 2 and write occurrence 1 both fire on a read followed
-by a write. Such configurations are rejected in either rule order. A wildcard at
-an earlier occurrence than the specific rule is safe.
+The parser rejects rules that could fire on the same call. Each rule counts its
+own matching calls, so different occurrence numbers can still conflict. For the
+same method, a read followed by a write triggers both an any-direction rule at
+occurrence 2 and a write-only rule at occurrence 1.
 
 Each rule targets exactly one occurrence. Schema version 1 cannot express
 repeated, counted, or probabilistic injection, or selectors beyond `method` and
