@@ -54,7 +54,7 @@ enum class backend_method_t {
 
 /** A validated rule definition. Occurrence counters belong to the runtime evaluator.
  *
- * Rules within one configuration never overlap, so at most one rule matches any call and
+ * Rules within one configuration never overlap, so at most one rule fires on any call and
  * the evaluator needs no precedence order. An omitted operation matches both directions.
  */
 struct faultRule {

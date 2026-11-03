@@ -116,12 +116,23 @@ namespace {
         return rule;
     }
 
-    // Two rules can match the same call when they name the same method and occurrence and
-    // their operations intersect. An omitted operation covers both transfer directions.
+    // A wildcard counts both directions, so its occurrence can catch up with a specific
+    // direction's earlier occurrence. Equal selectors count the same calls.
     bool
     overlaps(const faultRule &left, const faultRule &right) {
-        return left.method == right.method && left.injectOnOccurrence == right.injectOnOccurrence &&
-            (!left.operation || !right.operation || *left.operation == *right.operation);
+        if (left.method != right.method) {
+            return false;
+        }
+        if (left.operation == right.operation) {
+            return left.injectOnOccurrence == right.injectOnOccurrence;
+        }
+        if (!left.operation) {
+            return left.injectOnOccurrence >= right.injectOnOccurrence;
+        }
+        if (!right.operation) {
+            return right.injectOnOccurrence >= left.injectOnOccurrence;
+        }
+        return false;
     }
 
     std::vector<faultRule>
@@ -148,7 +159,7 @@ namespace {
                 });
             if (conflict != rules.end()) {
                 section.rejectAndThrow(
-                    element, "overlaps rule '" + conflict->id + "': same method and occurrence");
+                    element, "overlaps rule '" + conflict->id + "': can fire on the same call");
             }
             rules.push_back(std::move(rule));
         }

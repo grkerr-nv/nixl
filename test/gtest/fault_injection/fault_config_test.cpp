@@ -204,6 +204,20 @@ status = "NIXL_ERR_CANCELED"
     EXPECT_EQ(config.getRules().size(), 3U);
 }
 
+TEST(faultConfigTest, RejectsWildcardCollisionsAcrossDifferentOccurrences) {
+    const std::string wildcard = R"([[fault_injection.rules]]
+id = "any-direction"
+method = "postXfer"
+inject_on_occurrence = 2
+status = "NIXL_ERR_CANCELED"
+)";
+    // A read followed by a write hits wildcard occurrence 2 and write occurrence 1.
+    expectInvalid(std::string(config_text) + std::string(rule_text) + wildcard,
+                  "fault_injection.rules[1]: overlaps rule");
+    expectInvalid(std::string(config_text) + wildcard + std::string(rule_text),
+                  "fault_injection.rules[1]: overlaps rule");
+}
+
 TEST(faultConfigTest, AllowsOperationOnlyOnMethodsWithAnOperationArgument) {
     for (const auto method : {"prepXfer", "postXfer", "estimateXferCost", "checkXfer", "connect"}) {
         SCOPED_TRACE(method);

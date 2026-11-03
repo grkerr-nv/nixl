@@ -63,10 +63,13 @@ checks existence and plugin validity.
 `rules` may be omitted or `[]` for an inert configuration. Each rule requires a
 unique `id`, `method`, a positive `inject_on_occurrence`, and `status`.
 
-Rules must not overlap. Two rules naming the same `method` and
-`inject_on_occurrence` are rejected when their operations intersect, so at most
-one rule matches any call and the evaluator needs no precedence order. Rules on
-distinct methods, occurrences, or transfer directions remain independent.
+Rules must not fire on the same call. Rules with the same method and operation
+selector conflict only at the same occurrence; opposite transfer directions
+never conflict. A rule without an operation counts both directions, so it can
+collide with an operation-specific rule at an earlier or equal occurrence. For
+example, wildcard occurrence 2 and write occurrence 1 both fire on a read followed
+by a write. Such configurations are rejected in either rule order. A wildcard at
+an earlier occurrence than the specific rule is safe.
 
 Each rule targets exactly one occurrence. Schema version 1 cannot express
 repeated, counted, or probabilistic injection, or selectors beyond `method` and
@@ -97,6 +100,24 @@ invalid TOML raises it with the parser's source location. `load` raises
 read, and prepends the path to schema and TOML errors.
 
 ## Scope and validation
+
+`rule_evaluator.h` provides `nixl::fault::ruleEvaluator`, which owns a copy of the
+validated rules and their runtime counters:
+
+```cpp
+nixl::fault::ruleEvaluator evaluator(config);
+const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
+// nullptr means forward; otherwise rule->status is the configured result to inject.
+```
+
+Each evaluator has independent counters. Only matching methods and operations
+advance them, and all matching rules advance even when another rule fires on the
+same call. Each rule fires once; concurrent calls share a mutex around counting
+and selection. Returned rule pointers remain valid until the evaluator is
+destroyed. Construct a new evaluator for fresh counters.
+
+The proxy still rejects nonempty rules. Connecting this evaluator to backend
+calls and logging injections is separate work.
 
 This component represents status rules only. Request-handle corruption fields
 are rejected until their schema is defined. An inert consumer must reject
