@@ -17,7 +17,31 @@
 
 #include "rule_evaluator.h"
 
+#include <atomic>
+#include <cstdint>
+
 namespace nixl::fault {
+namespace {
+
+    // Decrement unless the counter already reached zero, and report the value it held
+    // beforehand. Only the caller that sees 1 took the counter to zero, so only that caller
+    // fires the rule. A plain fetch_sub cannot stop at zero: it would wrap a spent rule
+    // around to UINT64_MAX and let it fire again.
+    uint64_t
+    claimOccurrence(std::atomic<uint64_t> &remaining) {
+        uint64_t current = remaining.load(std::memory_order_relaxed);
+        while (current != 0) {
+            const bool claimed =
+                remaining.compare_exchange_weak(current, current - 1, std::memory_order_relaxed);
+            if (claimed) {
+                break;
+            }
+            // The failed exchange refreshed current with the live counter; try again.
+        }
+        return current;
+    }
+
+} // namespace
 
 ruleEvaluator::ruleEvaluator(const faultConfig &config) {
     rules_.reserve(config.getRules().size());
@@ -36,13 +60,7 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
             (rule_state.rule.operation && rule_state.rule.operation != operation)) {
             continue;
         }
-        // Stop at zero so a spent rule cannot wrap around and fire again. Exactly one
-        // caller can win the decrement from 1, and that caller fires the rule.
-        uint64_t remaining = rule_state.remaining.load(std::memory_order_relaxed);
-        while (remaining != 0 &&
-               !rule_state.remaining.compare_exchange_weak(
-                   remaining, remaining - 1, std::memory_order_relaxed)) {}
-        if (remaining == 1) {
+        if (claimOccurrence(rule_state.remaining) == 1) {
             firing = &rule_state.rule;
         }
     }
