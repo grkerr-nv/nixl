@@ -52,8 +52,8 @@ ruleEvaluator::ruleEvaluator(const faultConfig &config) {
 
 const faultRule *
 ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation) {
-    // The parser holds rules to the same pairing. A call that disagrees would match no
-    // rule and report a clean run instead of the configured fault.
+    // A method and operation that disagree match no rule, so the call injects nothing and
+    // the run looks clean. The parser holds rule definitions to the same pairing.
     assert(operation.has_value() == carriesOperation(method));
     const faultRule *firing = nullptr;
     for (auto &rule_state : rules_) {
