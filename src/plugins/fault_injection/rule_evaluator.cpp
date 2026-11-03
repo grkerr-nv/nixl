@@ -42,6 +42,17 @@ namespace {
         return current;
     }
 
+    // Does this rule select the call being evaluated? Asked twice below, once to decide
+    // whether ordering is still needed and once to claim the occurrence, so a selector added
+    // to one spelling and not the other would quietly change which calls fire.
+    bool
+    matchesCall(const faultRule &rule,
+                backend_method_t method,
+                std::optional<nixl_xfer_op_t> operation) {
+        return rule.method == method &&
+            (!rule.operation.has_value() || rule.operation == operation);
+    }
+
 } // namespace
 
 ruleEvaluator::ruleEvaluator(const faultConfig &config) {
@@ -81,8 +92,7 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
         serializedMethods_.end()) {
         const bool active =
             std::any_of(rules_.begin(), rules_.end(), [method, operation](const auto &rule_state) {
-                return rule_state.rule.method == method &&
-                    (!rule_state.rule.operation || rule_state.rule.operation == operation) &&
+                return matchesCall(rule_state.rule, method, operation) &&
                     rule_state.remaining.load(std::memory_order_relaxed) != 0;
             });
         if (!active) {
@@ -94,8 +104,7 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
     for (auto &rule_state : rules_) {
         // Rule definitions are immutable, so a call that matches nothing touches no
         // shared state at all.
-        if (rule_state.rule.method != method ||
-            (rule_state.rule.operation && rule_state.rule.operation != operation)) {
+        if (!matchesCall(rule_state.rule, method, operation)) {
             continue;
         }
         if (claimOccurrence(rule_state.remaining) == 1) {
