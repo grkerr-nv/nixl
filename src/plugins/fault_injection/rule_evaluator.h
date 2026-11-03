@@ -35,9 +35,7 @@ namespace nixl::fault {
  * object: a second evaluator over the same configuration restarts every count, so an
  * evaluator per engine would inject each rule once per engine instead of once per run.
  *
- * Concurrent calls share those counters; each rule fires at most once. Evaluation is
- * lock free: a nonmatching call reads no shared state and a spent rule costs one
- * relaxed load, so the backend path pays nothing for rules that cannot fire.
+ * Concurrent calls share those counters; each rule fires at most once.
  */
 class ruleEvaluator {
 public:
