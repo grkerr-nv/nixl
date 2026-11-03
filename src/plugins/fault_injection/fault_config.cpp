@@ -43,8 +43,16 @@ carriesOperation(backend_method_t method) {
 
 bool
 writesOutputOnSuccess(backend_method_t method) {
-    // Enumerated rather than listed so -Wswitch fails the build when schema version 1
-    // grows a method; every new one has to be classified here before it can be injected.
+    // Classify by the method's own signature. The true arm is every method whose success
+    // contract fills a non-const reference argument that core then reads, whether that is a
+    // handle, a metadata pointer, a string, or a measurement. The false arm is the methods whose
+    // returned status is the whole answer; checkXfer is the clearest of those, and injecting
+    // NIXL_SUCCESS on it is a real fault rather than a lie, because it reports a transfer as
+    // finished.
+    //
+    // getNotifs is the deliberate exception, an output argument sitting in the false arm. Core
+    // clears the list before every call, so a call that writes nothing reports no notifications
+    // rather than stale ones, which makes an injected success a dropped-notification fault.
     switch (method) {
     case backend_method_t::REGISTER_MEM:
     case backend_method_t::PREP_XFER:
@@ -112,6 +120,35 @@ namespace {
         {"NIXL_ERR_NO_TELEMETRY", NIXL_ERR_NO_TELEMETRY},
     };
 
+    // Injection hands the caller this status instead of the genuine backend's, so whether a
+    // status is an error decides whether the caller is sent to read an output argument that
+    // nothing wrote. Named rather than derived from the sign, which nixl_types.h never promises.
+    constexpr bool
+    isErrorStatus(nixl_status_t status) {
+        switch (status) {
+        case NIXL_SUCCESS:
+        case NIXL_IN_PROG:
+            return false;
+        case NIXL_ERR_NOT_POSTED:
+        case NIXL_ERR_INVALID_PARAM:
+        case NIXL_ERR_BACKEND:
+        case NIXL_ERR_NOT_FOUND:
+        case NIXL_ERR_MISMATCH:
+        case NIXL_ERR_NOT_ALLOWED:
+        case NIXL_ERR_REPOST_ACTIVE:
+        case NIXL_ERR_UNKNOWN:
+        case NIXL_ERR_NOT_SUPPORTED:
+        case NIXL_ERR_REMOTE_DISCONNECT:
+        case NIXL_ERR_CANCELED:
+        case NIXL_ERR_NO_TELEMETRY:
+            return true;
+        }
+        // Unreachable for the statuses a rule can name, which the table above fixes. An
+        // unclassified value counts as a non-error so it meets the output check rather than
+        // slipping past it.
+        return false;
+    }
+
     constexpr std::pair<std::string_view, nixl_xfer_op_t> operations[] = {
         {"NIXL_READ", NIXL_READ},
         {"NIXL_WRITE", NIXL_WRITE},
@@ -137,9 +174,8 @@ namespace {
         rule.id = fields.requiredString("id");
         rule.method = fields.requiredSymbol("method", methods);
         rule.status = fields.requiredSymbol("status", statuses);
-        // Errors are the negative statuses. NIXL_SUCCESS and NIXL_IN_PROG both send the
-        // caller to an output argument that a suppressed call never wrote.
-        if (rule.status >= NIXL_SUCCESS && writesOutputOnSuccess(rule.method)) {
+        // Both non-error statuses promise core a result the suppressed call never produced.
+        if (!isErrorStatus(rule.status) && writesOutputOnSuccess(rule.method)) {
             fields.rejectAndThrow("status",
                                   std::string(statusName(rule.status)) + " would leave " +
                                       std::string(methodName(rule.method)) +

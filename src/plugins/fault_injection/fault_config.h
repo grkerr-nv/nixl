@@ -63,12 +63,11 @@ carriesOperation(backend_method_t method);
 
 /** Whether a successful call must write an output argument the caller then reads.
  *
- * Injection returns the configured status without invoking the genuine backend and
- * without touching output arguments, so it has nothing to write there. A non-error
- * status on one of these methods would tell the caller to read a handle, pointer, or
- * value that no backend produced, so rules naming them take error statuses only.
- * getNotifs is deliberately absent: core clears the list before each call, so an
- * untouched list is an accurate "no notifications" result rather than a fabricated one.
+ * Injection substitutes a status for a call that never ran, so a non-error status here leaves
+ * core reading an argument nothing filled in. The crash that follows belongs to the harness
+ * rather than the system under test, so these methods take error statuses only. The rest keep
+ * the whole vocabulary, getNotifs included: core clears its list before each call, so a call
+ * that writes nothing truthfully reports no notifications.
  */
 [[nodiscard]] bool
 writesOutputOnSuccess(backend_method_t method);
