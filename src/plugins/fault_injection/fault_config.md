@@ -106,10 +106,18 @@ status = "NIXL_ERR_BACKEND"
 The evaluator selects this rule on the second `postXfer` call. For example, a read
 followed by a write selects it on the write.
 
-The parser rejects rules that could fire on the same call. Each rule counts its
-own matching calls, so different occurrence numbers can still conflict. For the
-same method, a read followed by a write triggers both an any-direction rule at
-occurrence 2 and a write-only rule at occurrence 1.
+The parser rejects rules that could fire on the same call. Two rules on the same
+method are accepted when they name different directions, when they name the same
+direction, or both omit it, with different occurrences, or when the rule omitting
+`operation` has the lower occurrence.
+
+That last case is asymmetric. A rule without an `operation` counts both
+directions, so its occurrence can arrive at a directional rule's earlier one: a
+read then a write is occurrence 2 for an any-direction rule and occurrence 1 for
+a write-only rule. An any-direction rule at occurrence 1 beside a write-only rule
+at occurrence 2 is accepted; swap the numbers and it is rejected, in whichever
+order they are declared. The check cannot know the workload, so it also rejects
+pairs that a write-only run would never bring together.
 
 Each rule targets exactly one occurrence. Schema version 1 cannot express
 repeated, counted, or probabilistic injection, or selectors beyond `method` and

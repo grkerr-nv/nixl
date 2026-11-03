@@ -213,6 +213,22 @@ inject_on_occurrence = 2
 status = "NIXL_ERR_CANCELED"
 )");
     EXPECT_EQ(config.getRules().size(), 3U);
+
+    // Omitting the operation is allowed ahead of a directional rule, the asymmetry the
+    // reversed pair above is rejected for.
+    const auto ordered = faultConfig::parse(std::string(config_text) + R"([[fault_injection.rules]]
+id = "any-direction-first"
+method = "postXfer"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+[[fault_injection.rules]]
+id = "second-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 2
+status = "NIXL_ERR_BACKEND"
+)");
+    EXPECT_EQ(ordered.getRules().size(), 2U);
 }
 
 TEST(faultConfigTest, RejectsWildcardCollisionsAcrossDifferentOccurrences) {
