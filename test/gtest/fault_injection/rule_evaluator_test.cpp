@@ -123,6 +123,9 @@ status = "NIXL_ERR_BACKEND"
 }
 
 TEST(ruleEvaluatorTest, ConcurrentMatchingCallsFireEachRuleExactlyOnce) {
+    // Eight threads share one evaluator and make 256 calls per method. Check that
+    // connect occurrence 17 and disconnect occurrence 31 each select a rule exactly
+    // once under contention, and that later calls leave both rules spent.
     ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
 id = "seventeenth-connect"
 method = "connect"
