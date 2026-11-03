@@ -17,9 +17,11 @@
 
 #include "rule_evaluator.h"
 
+#include <algorithm>
+
 namespace nixl::fault {
 
-ruleEvaluator::ruleEvaluator(const faultConfig &config) {
+ruleEvaluator::ruleEvaluator(const faultConfig &config) : activeRules_(config.getRules().size()) {
     rules_.reserve(config.getRules().size());
     for (const auto &rule : config.getRules()) {
         rules_.push_back({.rule = rule, .remaining = rule.injectOnOccurrence});
@@ -28,19 +30,28 @@ ruleEvaluator::ruleEvaluator(const faultConfig &config) {
 
 const faultRule *
 ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation) {
-    if (rules_.empty()) {
+    if (activeRules_.load(std::memory_order_relaxed) == 0) {
+        return nullptr;
+    }
+    const auto matches = [method, operation](const ruleState &state) {
+        return state.rule.method == method &&
+            (!state.rule.operation || state.rule.operation == operation);
+    };
+    // Only immutable rule definitions are read before locking, never the countdowns.
+    if (std::none_of(rules_.begin(), rules_.end(), matches)) {
         return nullptr;
     }
     const std::lock_guard lock(mutex_);
     const faultRule *firing = nullptr;
     for (auto &state : rules_) {
-        if (state.rule.method != method ||
-            (state.rule.operation && state.rule.operation != operation) || state.remaining == 0) {
+        if (!matches(state) || state.remaining == 0) {
             continue;
         }
         // Count down to zero so spent rules cannot wrap around and fire again.
+        // The mutex lets only one caller make the transition from 1 to 0.
         if (--state.remaining == 0) {
             firing = &state.rule;
+            activeRules_.fetch_sub(1, std::memory_order_relaxed);
         }
     }
     return firing;

@@ -122,14 +122,19 @@ status = "NIXL_ERR_BACKEND"
     EXPECT_EQ(rule->id, "second-write");
 }
 
-TEST(ruleEvaluatorTest, ConcurrentMatchingCallsFireExactlyOnce) {
+TEST(ruleEvaluatorTest, ConcurrentMatchingCallsFireEachRuleExactlyOnce) {
     ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
 id = "seventeenth-connect"
 method = "connect"
 inject_on_occurrence = 17
 status = "NIXL_ERR_BACKEND"
+[[fault_injection.rules]]
+id = "thirty-first-disconnect"
+method = "disconnect"
+inject_on_occurrence = 31
+status = "NIXL_ERR_REMOTE_DISCONNECT"
 )"));
-    std::atomic<unsigned> injections{0};
+    std::atomic<unsigned> connections{0}, disconnections{0};
     std::barrier start(8);
     std::vector<std::jthread> workers;
     for (int index = 0; index < 8; ++index) {
@@ -137,7 +142,10 @@ status = "NIXL_ERR_BACKEND"
             start.arrive_and_wait();
             for (int call = 0; call < 32; ++call) {
                 if (evaluator.evaluate(backend_method_t::CONNECT)) {
-                    injections.fetch_add(1, std::memory_order_relaxed);
+                    connections.fetch_add(1, std::memory_order_relaxed);
+                }
+                if (evaluator.evaluate(backend_method_t::DISCONNECT)) {
+                    disconnections.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         });
@@ -145,8 +153,10 @@ status = "NIXL_ERR_BACKEND"
     for (auto &worker : workers) {
         worker.join();
     }
-    EXPECT_EQ(injections.load(), 1U);
+    EXPECT_EQ(connections.load(), 1U);
+    EXPECT_EQ(disconnections.load(), 1U);
     EXPECT_EQ(evaluator.evaluate(backend_method_t::CONNECT), nullptr);
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::DISCONNECT), nullptr);
 }
 
 } // namespace

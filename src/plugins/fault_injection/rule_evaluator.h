@@ -20,6 +20,8 @@
 
 #include "fault_config.h"
 
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -48,6 +50,8 @@ private:
     };
 
     std::vector<ruleState> rules_;
+    // Monotonic count for the unlocked spent-rules bypass; it publishes no other state.
+    std::atomic<std::size_t> activeRules_;
     // Protects occurrence updates and one-shot selection; rule definitions never change.
     std::mutex mutex_;
 };
