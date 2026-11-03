@@ -38,8 +38,7 @@ const auto &rules = config.getRules();
 source can change or disappear afterwards.
 
 The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
-lifetime. It uses `getRealPluginPath()` to load the genuine backend and rejects
-nonempty rules until runtime injection is implemented.
+lifetime and uses `getRealPluginPath()` to load the genuine backend.
 
 ### Rule evaluator
 
@@ -105,8 +104,7 @@ status = "NIXL_ERR_BACKEND"
 ```
 
 The evaluator selects this rule on the second `postXfer` call. For example, a read
-followed by a write selects it on the write. Runtime injection is not wired into
-the proxy yet, so the proxy still rejects configurations with nonempty rules.
+followed by a write selects it on the write.
 
 The parser rejects rules that could fire on the same call. Each rule counts its
 own matching calls, so different occurrence numbers can still conflict. For the
@@ -143,12 +141,12 @@ read, and prepends the path to schema and TOML errors.
 
 ## Scope and validation
 
-The proxy still rejects nonempty rules. Connecting this evaluator to backend
-calls and logging injections is separate work.
-
 This component represents status rules only. Request-handle corruption fields
-are rejected until their schema is defined. An inert consumer must reject
-nonempty rules until it can execute them.
+are rejected until their schema is defined.
+
+An inert consumer must reject nonempty rules until it can execute them, so the
+proxy still does. Connecting this evaluator to backend calls and logging
+injections is separate work.
 
 Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
 setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter
