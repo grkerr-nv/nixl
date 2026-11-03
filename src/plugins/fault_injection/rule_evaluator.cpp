@@ -64,6 +64,11 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
             continue;
         }
         if (claimOccurrence(rule_state.remaining) == 1) {
+            // The parser rejects rules that can fire on the same call, so at most one
+            // reaches zero here. Assert it rather than quietly discarding the other: a
+            // future selector that overlapReason does not know about would otherwise
+            // inject whichever status came later in the file.
+            assert(firing == nullptr);
             firing = &rule_state.rule;
         }
     }
