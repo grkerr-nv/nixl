@@ -18,9 +18,12 @@ limitations under the License.
 # Fault configuration
 
 `fault_config.h` provides `nixl::fault::faultConfig`, an owning, validated snapshot
-of the schema-version-1 status-rule configuration.
+of the schema-version-1 status-rule configuration. `rule_evaluator.h` provides
+`nixl::fault::ruleEvaluator`, which applies those rules to backend calls.
 
 ## API
+
+### Configuration
 
 ```cpp
 #include "fault_config.h"
@@ -37,6 +40,35 @@ source can change or disappear afterwards.
 The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
 lifetime. It uses `getRealPluginPath()` to load the genuine backend and rejects
 nonempty rules until runtime injection is implemented.
+
+### Rule evaluator
+
+`rule_evaluator.h` provides `nixl::fault::ruleEvaluator`, which owns a copy of the
+validated rules and their runtime counters:
+
+```cpp
+nixl::fault::ruleEvaluator evaluator(config);
+const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
+// nullptr means forward; otherwise rule->status is the configured result to inject.
+```
+
+Pass the operation the backend call carried, or `std::nullopt` for the methods
+that take none; `carriesOperation` says which, and the two must agree. A missing
+operation matches no rule and would report a clean run instead of the configured
+fault, so the pairing is asserted rather than defaulted.
+
+Each evaluator has independent counters. Only matching methods and operations
+advance them, and all matching rules advance even when another rule fires on the
+same call. Evaluation takes no lock: a call matching no rule reads only the
+immutable definitions, and a spent rule costs one relaxed atomic load, so the
+backend path pays nothing for rules that cannot fire. Matching rules count down
+atomically, so exactly one caller can take a rule from 1 to 0 and select it.
+Returned rule pointers remain valid until the evaluator is destroyed.
+
+Counters live in the evaluator, so a second evaluator over the same configuration
+restarts them. The proxy constructs one per loaded plugin and shares it with every
+backend engine; one per engine would inject each rule once per engine instead of
+once per run.
 
 ## Schema
 
@@ -112,34 +144,6 @@ invalid TOML raises it with the parser's source location. `load` raises
 read, and prepends the path to schema and TOML errors.
 
 ## Scope and validation
-
-`rule_evaluator.h` provides `nixl::fault::ruleEvaluator`, which owns a copy of the
-validated rules and their runtime counters:
-
-```cpp
-nixl::fault::ruleEvaluator evaluator(config);
-const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
-// nullptr means forward; otherwise rule->status is the configured result to inject.
-```
-
-Pass the operation the backend call carried, or `std::nullopt` for the methods
-that take none; `carriesOperation` says which, and the two must agree. A missing
-operation matches no rule and would report a clean run instead of the configured
-fault, so the pairing is asserted rather than defaulted.
-
-Each evaluator has independent counters. Only matching methods and operations
-advance them, and all matching rules advance even when another rule fires on the
-same call. Evaluation takes no lock: a call matching no rule reads only the
-immutable definitions, and a spent rule costs one relaxed atomic load, so the
-backend path pays nothing for rules that cannot fire. Matching rules count down
-atomically, so exactly one caller can take a rule from 1 to 0 and select it.
-Returned rule pointers remain valid until
-the evaluator is destroyed.
-
-Counters live in the evaluator, so a second evaluator over the same configuration
-restarts them. The proxy constructs one per loaded plugin and shares it with every
-backend engine; one per engine would inject each rule once per engine instead of
-once per run.
 
 The proxy still rejects nonempty rules. Connecting this evaluator to backend
 calls and logging injections is separate work.
