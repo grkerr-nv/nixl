@@ -120,6 +120,14 @@ TEST_P(proxyUcxTest, TransfersDramBetweenAgents) {
     EXPECT_EQ(receiver.deregisterMem(destination_regs), NIXL_SUCCESS);
 }
 
-INSTANTIATE_TEST_SUITE_P(proxyModes, proxyUcxTest, testing::Bool());
+// Named rather than left as /0 and /1, which are positions in the list above. A mode added
+// or reordered there would otherwise silently move, and the filtered test that named an index
+// would go on passing while exercising the other mode.
+INSTANTIATE_TEST_SUITE_P(proxyModes,
+                         proxyUcxTest,
+                         testing::Bool(),
+                         [](const testing::TestParamInfo<bool> &mode) -> std::string {
+                             return mode.param ? "Injecting" : "Forwarding";
+                         });
 
 } // namespace
