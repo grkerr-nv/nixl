@@ -148,8 +148,10 @@ This component represents status rules only. Request-handle corruption fields
 are rejected until their schema is defined. An inert consumer must reject
 nonempty rules until it can execute them.
 
-Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest setup:
+Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
+setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter
+only risks skipping the component you changed:
 
 ```bash
-meson test -C build plugin_loader --test-args='--gtest_filter=faultConfig*.*' --print-errorlogs
+meson test -C build plugin_loader --print-errorlogs
 ```
