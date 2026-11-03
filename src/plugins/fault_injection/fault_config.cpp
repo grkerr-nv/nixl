@@ -41,6 +41,36 @@ carriesOperation(backend_method_t method) {
         method == backend_method_t::ESTIMATE_XFER_COST;
 }
 
+bool
+writesOutputOnSuccess(backend_method_t method) {
+    // Enumerated rather than listed so -Wswitch fails the build when schema version 1
+    // grows a method; every new one has to be classified here before it can be injected.
+    switch (method) {
+    case backend_method_t::REGISTER_MEM:
+    case backend_method_t::PREP_XFER:
+    case backend_method_t::POST_XFER:
+    case backend_method_t::PREP_MEM_VIEW:
+    case backend_method_t::GET_PUBLIC_DATA:
+    case backend_method_t::GET_CONN_INFO:
+    case backend_method_t::LOAD_REMOTE_MD:
+    case backend_method_t::LOAD_LOCAL_MD:
+    case backend_method_t::QUERY_MEM:
+    case backend_method_t::ESTIMATE_XFER_COST:
+        return true;
+    case backend_method_t::DEREGISTER_MEM:
+    case backend_method_t::CONNECT:
+    case backend_method_t::DISCONNECT:
+    case backend_method_t::UNLOAD_MD:
+    case backend_method_t::CHECK_XFER:
+    case backend_method_t::RELEASE_REQ_H:
+    case backend_method_t::LOAD_REMOTE_CONN_INFO:
+    case backend_method_t::GET_NOTIFS:
+    case backend_method_t::GEN_NOTIF:
+        return false;
+    }
+    return false;
+}
+
 namespace {
 
     constexpr std::pair<std::string_view, backend_method_t> methods[] = {
@@ -107,6 +137,15 @@ namespace {
         rule.id = fields.requiredString("id");
         rule.method = fields.requiredSymbol("method", methods);
         rule.status = fields.requiredSymbol("status", statuses);
+        // Errors are the negative statuses. NIXL_SUCCESS and NIXL_IN_PROG both send the
+        // caller to an output argument that a suppressed call never wrote.
+        if (rule.status >= NIXL_SUCCESS && writesOutputOnSuccess(rule.method)) {
+            fields.rejectAndThrow("status",
+                                  std::string(statusName(rule.status)) + " would leave " +
+                                      std::string(methodName(rule.method)) +
+                                      "'s output argument unwritten, and injection cannot "
+                                      "fabricate one; this method takes error statuses only");
+        }
         rule.injectOnOccurrence = fields.positiveInteger("inject_on_occurrence");
         if (fields.contains("operation")) {
             if (!carriesOperation(rule.method)) {

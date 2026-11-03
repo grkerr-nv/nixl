@@ -61,6 +61,18 @@ enum class backend_method_t {
 [[nodiscard]] bool
 carriesOperation(backend_method_t method);
 
+/** Whether a successful call must write an output argument the caller then reads.
+ *
+ * Injection returns the configured status without invoking the genuine backend and
+ * without touching output arguments, so it has nothing to write there. A non-error
+ * status on one of these methods would tell the caller to read a handle, pointer, or
+ * value that no backend produced, so rules naming them take error statuses only.
+ * getNotifs is deliberately absent: core clears the list before each call, so an
+ * untouched list is an accurate "no notifications" result rather than a fabricated one.
+ */
+[[nodiscard]] bool
+writesOutputOnSuccess(backend_method_t method);
+
 [[nodiscard]] std::string_view
 methodName(backend_method_t method);
 

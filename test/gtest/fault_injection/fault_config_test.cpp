@@ -114,18 +114,20 @@ TEST(faultConfigTest, AcceptsCompleteStatusVocabulary) {
         {"NIXL_ERR_CANCELED", NIXL_ERR_CANCELED},
         {"NIXL_ERR_NO_TELEMETRY", NIXL_ERR_NO_TELEMETRY},
     };
+    // connect owes the caller no output, so it is the one method the whole vocabulary
+    // parses against; writesOutputOnSuccess rejects the non-error statuses elsewhere.
     for (const auto &[name, status] : statuses) {
         SCOPED_TRACE(name);
         const auto text = std::string(config_text) + R"([[fault_injection.rules]]
 id = "status-check"
-method = "registerMem"
+method = "connect"
 inject_on_occurrence = 1
 status = ")" +
             std::string(name) + "\"\n";
         const auto config = faultConfig::parse(text);
         ASSERT_EQ(config.getRules().size(), 1U);
         EXPECT_EQ(config.getRules()[0].status, status);
-        EXPECT_EQ(config.getRules()[0].method, backend_method_t::REGISTER_MEM);
+        EXPECT_EQ(config.getRules()[0].method, backend_method_t::CONNECT);
     }
 }
 
@@ -274,6 +276,32 @@ TEST(faultConfigTest, AllowsOperationOnlyOnMethodsWithAnOperationArgument) {
         const auto wildcard = faultConfig::parse(omitted);
         ASSERT_EQ(wildcard.getRules().size(), 1U);
         EXPECT_FALSE(wildcard.getRules()[0].operation.has_value());
+    }
+}
+
+TEST(faultConfigTest, AllowsNonErrorStatusOnlyWhereNoOutputIsOwed) {
+    const auto ruleFor = [](std::string_view method, std::string_view status) {
+        return std::string(config_text) + "[[fault_injection.rules]]\nid = \"output-check\"\n" +
+            "method = \"" + std::string(method) + "\"\ninject_on_occurrence = 1\n" + "status = \"" +
+            std::string(status) + "\"\n";
+    };
+
+    // Suppressing the call leaves an opaque handle and a plain value out-argument alike
+    // holding whatever the caller passed in, which core then reads as a real result.
+    for (const auto &[method, status] : {std::pair{"registerMem", "NIXL_SUCCESS"},
+                                         std::pair{"estimateXferCost", "NIXL_IN_PROG"}}) {
+        SCOPED_TRACE(std::string(method) + " " + status);
+        expectInvalid(ruleFor(method, status), "fault_injection.rules[0].status");
+    }
+
+    // An error status stays available on those methods, and methods that owe no output
+    // keep the whole vocabulary. getNotifs is in the second group because core clears the
+    // list before each call, so an untouched list is an accurate empty result.
+    for (const auto &[method, status] : {std::pair{"registerMem", "NIXL_ERR_BACKEND"},
+                                         std::pair{"getNotifs", "NIXL_SUCCESS"},
+                                         std::pair{"connect", "NIXL_IN_PROG"}}) {
+        SCOPED_TRACE(std::string(method) + " " + status);
+        EXPECT_EQ(faultConfig::parse(ruleFor(method, status)).getRules().size(), 1U);
     }
 }
 

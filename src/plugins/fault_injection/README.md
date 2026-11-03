@@ -78,7 +78,9 @@ The selected call returns the configured status without invoking the genuine
 backend. The rule is then spent; later calls forward normally. Engines share one
 evaluator per initialized plugin lifetime, so creating another engine does not
 restart the counts. Injection leaves output arguments unchanged and fabricates
-no metadata, memory views, or request handles.
+no metadata, memory views, or request handles. Because it cannot write one, the
+parser rejects `NIXL_SUCCESS` and `NIXL_IN_PROG` for the methods that owe the
+caller an output argument; see [the status vocabulary](fault_config.md).
 
 Set `NIXL_LOG_LEVEL=INFO` before starting the process to capture configuration,
 rule, and injection records. `NIXL_LOG_FILE` can also mirror them to a file.

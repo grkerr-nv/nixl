@@ -151,6 +151,20 @@ both transfer directions.
 `NIXL_SUCCESS`, and `NIXL_IN_PROG`. Numeric statuses are rejected, as are unknown
 keys at the document, section, or rule level.
 
+The two non-error statuses are rejected for methods whose success contract writes
+an output argument: `registerMem`, `prepXfer`, `postXfer`, `prepMemView`,
+`getPublicData`, `getConnInfo`, `loadRemoteMD`, `loadLocalMD`, `queryMem`, and
+`estimateXferCost`. Injection suppresses the genuine call and never writes an
+output argument, so `NIXL_SUCCESS` there would hand core a handle, pointer, or
+value no backend produced. On `registerMem` that is a null or stale
+`nixlBackendMD*` that the genuine backend later dereferences or frees twice.
+Those methods take error statuses only; the remaining nine take all 14.
+
+`getNotifs` is in the second group even though it writes a list, because core
+clears that list before each call. An untouched list is an accurate "no
+notifications" result, which makes `getNotifs` with `NIXL_SUCCESS` the way to
+inject silently dropped notifications.
+
 ## Errors
 
 Schema violations raise `std::invalid_argument` naming the field and rule index;
@@ -166,7 +180,9 @@ are rejected until their schema is defined.
 The proxy evaluates these rules before each status-returning backend call. When
 a rule fires, it logs the injection and returns that status without invoking the
 genuine backend. Non-status methods always forward. Output arguments remain
-unchanged on suppressed calls; request-handle corruption is not implemented.
+unchanged on suppressed calls, which is why the status vocabulary above is
+narrowed for the methods that owe one; request-handle corruption is not
+implemented.
 
 Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
 setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter
