@@ -58,7 +58,10 @@ fault, so the pairing is asserted rather than defaulted.
 
 Each evaluator has independent counters. Only matching methods and operations
 advance them, and all matching rules advance even when another rule fires on the
-same call. Concurrent calls are safe: exactly one caller takes a rule to its
+same call. An occurrence therefore counts the calls the caller made, not the calls
+the genuine backend ran: with two rules over the same calls, the earlier rule's
+injection still advances the later rule, which can reach its occurrence before the
+backend has run that many. Concurrent calls are safe: exactly one caller takes a rule to its
 configured occurrence and receives it. Returned rule pointers remain valid until
 the evaluator is destroyed.
 

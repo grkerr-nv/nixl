@@ -45,7 +45,8 @@ public:
      * Pass the operation the call carried, or std::nullopt for the methods that take none;
      * carriesOperation(method) says which, and the pairing is not optional because a
      * missing operation silently matches no rule.
-     * Every matching rule advances, including when another rule fires on this call.
+     * Every matching rule advances, including when another rule fires on this call, so an
+     * occurrence counts calls made rather than calls the genuine backend ran.
      * The returned rule is immutable and remains valid until this evaluator is destroyed.
      */
     [[nodiscard]] const faultRule *

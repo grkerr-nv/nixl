@@ -66,6 +66,32 @@ status = "NIXL_ERR_BACKEND"
     EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE), nullptr);
 }
 
+TEST(ruleEvaluatorTest, CountsCallsMadeRatherThanCallsForwarded) {
+    ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
+id = "first-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 1
+status = "NIXL_ERR_BACKEND"
+[[fault_injection.rules]]
+id = "third-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 3
+status = "NIXL_ERR_CANCELED"
+)"));
+    // The first call is injected, so the genuine backend never runs it, yet it still
+    // advances the second rule. third-write fires on the third call made, by which point
+    // the backend has run one write.
+    const auto *first = evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE);
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(first->id, "first-write");
+    EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE), nullptr);
+    const auto *third = evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE);
+    ASSERT_NE(third, nullptr);
+    EXPECT_EQ(third->id, "third-write");
+}
+
 TEST(ruleEvaluatorTest, AdvancesEveryMatchingRuleWithIndependentRuntimeCounters) {
     const auto config = makeConfig(R"([[fault_injection.rules]]
 id = "first"
