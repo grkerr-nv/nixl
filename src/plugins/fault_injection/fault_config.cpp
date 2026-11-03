@@ -21,7 +21,6 @@
 
 #include <toml++/toml.hpp>
 
-#include <algorithm>
 #include <fstream>
 #include <initializer_list>
 #include <iterator>
@@ -116,23 +115,34 @@ namespace {
         return rule;
     }
 
-    // A wildcard counts both directions, so its occurrence can catch up with a specific
-    // direction's earlier occurrence. Equal selectors count the same calls.
-    bool
-    overlaps(const faultRule &left, const faultRule &right) {
-        if (left.method != right.method) {
-            return false;
+    // Two rules collide when they can count the same call. Equal selectors always do. A
+    // rule that omits the operation counts both directions, so its occurrence can land on
+    // a directional rule's earlier one even though the two numbers differ. Returns why,
+    // or an empty string when the rules are independent.
+    std::string
+    overlapReason(const faultRule &rule, const faultRule &earlier) {
+        if (rule.method != earlier.method) {
+            return {};
         }
-        if (left.operation == right.operation) {
-            return left.injectOnOccurrence == right.injectOnOccurrence;
+        if (rule.operation == earlier.operation) {
+            if (rule.injectOnOccurrence != earlier.injectOnOccurrence) {
+                return {};
+            }
+            return "same method, operation and occurrence";
         }
-        if (!left.operation) {
-            return left.injectOnOccurrence >= right.injectOnOccurrence;
+        if (rule.operation && earlier.operation) {
+            // Two different directions never count the same call.
+            return {};
         }
-        if (!right.operation) {
-            return right.injectOnOccurrence >= left.injectOnOccurrence;
+        // Exactly one of the two omits the operation.
+        const faultRule &wildcard = rule.operation ? earlier : rule;
+        const faultRule &directional = rule.operation ? rule : earlier;
+        if (wildcard.injectOnOccurrence < directional.injectOnOccurrence) {
+            return {};
         }
-        return false;
+        return "the rule without an operation counts both directions, so its occurrence " +
+            std::to_string(wildcard.injectOnOccurrence) + " can be occurrence " +
+            std::to_string(directional.injectOnOccurrence) + " of the directional rule";
     }
 
     std::vector<faultRule>
@@ -153,13 +163,12 @@ namespace {
             if (!identifiers.insert(rule.id).second) {
                 section.rejectAndThrow(element + ".id", "duplicate rule ID '" + rule.id + "'");
             }
-            const auto conflict =
-                std::find_if(rules.begin(), rules.end(), [&rule](const faultRule &earlier) {
-                    return overlaps(rule, earlier);
-                });
-            if (conflict != rules.end()) {
-                section.rejectAndThrow(
-                    element, "overlaps rule '" + conflict->id + "': can fire on the same call");
+            for (const auto &earlier : rules) {
+                const auto reason = overlapReason(rule, earlier);
+                if (!reason.empty()) {
+                    section.rejectAndThrow(element,
+                                           "overlaps rule '" + earlier.id + "': " + reason);
+                }
             }
             rules.push_back(std::move(rule));
         }

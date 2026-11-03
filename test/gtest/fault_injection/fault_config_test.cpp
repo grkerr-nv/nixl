@@ -185,7 +185,18 @@ method = "postXfer"
 inject_on_occurrence = 1
 status = "NIXL_ERR_CANCELED"
 )",
-                  "fault_injection.rules[1]: overlaps rule 'fail-first-post'");
+                  "overlaps rule 'fail-first-post': the rule without an operation counts "
+                  "both directions, so its occurrence 1 can be occurrence 1 of the "
+                  "directional rule");
+
+    expectInvalid(base + R"([[fault_injection.rules]]
+id = "same-selectors"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+)",
+                  "overlaps rule 'fail-first-post': same method, operation and occurrence");
 
     // A disjoint operation and a later occurrence stay independent.
     const auto config = faultConfig::parse(base + R"([[fault_injection.rules]]
