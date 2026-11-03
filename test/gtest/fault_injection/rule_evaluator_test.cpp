@@ -126,6 +126,8 @@ TEST(ruleEvaluatorTest, ConcurrentMatchingCallsFireEachRuleExactlyOnce) {
     // Eight threads share one evaluator and make 256 calls per method. Check that
     // connect occurrence 17 and disconnect occurrence 31 each select a rule exactly
     // once under contention, and that later calls leave both rules spent.
+    constexpr int thread_count = 8;
+    constexpr int calls_per_method_per_thread = 32;
     ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
 id = "seventeenth-connect"
 method = "connect"
@@ -138,12 +140,12 @@ inject_on_occurrence = 31
 status = "NIXL_ERR_REMOTE_DISCONNECT"
 )"));
     std::atomic<unsigned> connections{0}, disconnections{0};
-    std::barrier start(8);
+    std::barrier start(thread_count);
     std::vector<std::jthread> workers;
-    for (int index = 0; index < 8; ++index) {
+    for (int index = 0; index < thread_count; ++index) {
         workers.emplace_back([&] {
             start.arrive_and_wait();
-            for (int call = 0; call < 32; ++call) {
+            for (int call = 0; call < calls_per_method_per_thread; ++call) {
                 if (evaluator.evaluate(backend_method_t::CONNECT)) {
                     connections.fetch_add(1, std::memory_order_relaxed);
                 }
