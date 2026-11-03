@@ -18,6 +18,7 @@
 #define NIXL_FAULT_INJECTION_FORWARDING_ENGINE_H
 
 #include "engine_ptr.h"
+#include "fault_runtime.h"
 
 #include <stdexcept>
 #include <string>
@@ -31,8 +32,11 @@ namespace nixl::fault {
 // not currently drain backend telemetry queues, so no events are lost.
 class forwardingEngine : public nixlBackendEngine {
 public:
-    forwardingEngine(const nixlBackendInitParams *params, engine_ptr_t engine)
+    forwardingEngine(const nixlBackendInitParams *params,
+                     engine_ptr_t engine,
+                     std::shared_ptr<faultRuntime> runtime = nullptr)
         : nixlBackendEngine(validateParams(params)),
+          runtime_(std::move(runtime)),
           engine_(std::move(engine)) {
         if (!engine_) {
             throw std::invalid_argument("A wrapped backend engine is required");
@@ -79,26 +83,41 @@ public:
 
     nixl_status_t
     registerMem(const nixlBlobDesc &mem, const nixl_mem_t &type, nixlBackendMD *&out) override {
+        if (const auto status = injectedStatus(backend_method_t::REGISTER_MEM, std::nullopt)) {
+            return *status;
+        }
         return engine_->registerMem(mem, type, out);
     }
 
     nixl_status_t
     deregisterMem(nixlBackendMD *meta) override {
+        if (const auto status = injectedStatus(backend_method_t::DEREGISTER_MEM, std::nullopt)) {
+            return *status;
+        }
         return engine_->deregisterMem(meta);
     }
 
     nixl_status_t
     connect(const std::string &peer) override {
+        if (const auto status = injectedStatus(backend_method_t::CONNECT, std::nullopt)) {
+            return *status;
+        }
         return engine_->connect(peer);
     }
 
     nixl_status_t
     disconnect(const std::string &peer) override {
+        if (const auto status = injectedStatus(backend_method_t::DISCONNECT, std::nullopt)) {
+            return *status;
+        }
         return engine_->disconnect(peer);
     }
 
     nixl_status_t
     unloadMD(nixlBackendMD *meta) override {
+        if (const auto status = injectedStatus(backend_method_t::UNLOAD_MD, std::nullopt)) {
+            return *status;
+        }
         return engine_->unloadMD(meta);
     }
 
@@ -109,6 +128,9 @@ public:
              const std::string &peer,
              nixlBackendReqH *&handle,
              const nixl_opt_b_args_t *args = nullptr) const override {
+        if (const auto status = injectedStatus(backend_method_t::PREP_XFER, operation)) {
+            return *status;
+        }
         return engine_->prepXfer(operation, local, remote, peer, handle, args);
     }
 
@@ -119,16 +141,25 @@ public:
              const std::string &peer,
              nixlBackendReqH *&handle,
              const nixl_opt_b_args_t *args = nullptr) const override {
+        if (const auto status = injectedStatus(backend_method_t::POST_XFER, operation)) {
+            return *status;
+        }
         return engine_->postXfer(operation, local, remote, peer, handle, args);
     }
 
     nixl_status_t
     checkXfer(nixlBackendReqH *handle) const override {
+        if (const auto status = injectedStatus(backend_method_t::CHECK_XFER, std::nullopt)) {
+            return *status;
+        }
         return engine_->checkXfer(handle);
     }
 
     nixl_status_t
     releaseReqH(nixlBackendReqH *handle) const override {
+        if (const auto status = injectedStatus(backend_method_t::RELEASE_REQ_H, std::nullopt)) {
+            return *status;
+        }
         return engine_->releaseReqH(handle);
     }
 
@@ -136,6 +167,9 @@ public:
     prepMemView(const nixl_remote_meta_dlist_t &descs,
                 nixlMemViewH &handle,
                 const nixl_opt_b_args_t *args = nullptr) const override {
+        if (const auto status = injectedStatus(backend_method_t::PREP_MEM_VIEW, std::nullopt)) {
+            return *status;
+        }
         return engine_->prepMemView(descs, handle, args);
     }
 
@@ -143,6 +177,9 @@ public:
     prepMemView(const nixl_meta_dlist_t &descs,
                 nixlMemViewH &handle,
                 const nixl_opt_b_args_t *args = nullptr) const override {
+        if (const auto status = injectedStatus(backend_method_t::PREP_MEM_VIEW, std::nullopt)) {
+            return *status;
+        }
         return engine_->prepMemView(descs, handle, args);
     }
 
@@ -153,16 +190,26 @@ public:
 
     nixl_status_t
     getPublicData(const nixlBackendMD *meta, std::string &data) const override {
+        if (const auto status = injectedStatus(backend_method_t::GET_PUBLIC_DATA, std::nullopt)) {
+            return *status;
+        }
         return engine_->getPublicData(meta, data);
     }
 
     nixl_status_t
     getConnInfo(std::string &data) const override {
+        if (const auto status = injectedStatus(backend_method_t::GET_CONN_INFO, std::nullopt)) {
+            return *status;
+        }
         return engine_->getConnInfo(data);
     }
 
     nixl_status_t
     loadRemoteConnInfo(const std::string &peer, const std::string &data) override {
+        if (const auto status =
+                injectedStatus(backend_method_t::LOAD_REMOTE_CONN_INFO, std::nullopt)) {
+            return *status;
+        }
         return engine_->loadRemoteConnInfo(peer, data);
     }
 
@@ -171,27 +218,42 @@ public:
                  const nixl_mem_t &type,
                  const std::string &peer,
                  nixlBackendMD *&out) override {
+        if (const auto status = injectedStatus(backend_method_t::LOAD_REMOTE_MD, std::nullopt)) {
+            return *status;
+        }
         return engine_->loadRemoteMD(desc, type, peer, out);
     }
 
     nixl_status_t
     loadLocalMD(nixlBackendMD *meta, nixlBackendMD *&out) override {
+        if (const auto status = injectedStatus(backend_method_t::LOAD_LOCAL_MD, std::nullopt)) {
+            return *status;
+        }
         return engine_->loadLocalMD(meta, out);
     }
 
     nixl_status_t
     getNotifs(notif_list_t &notifs) override {
+        if (const auto status = injectedStatus(backend_method_t::GET_NOTIFS, std::nullopt)) {
+            return *status;
+        }
         return engine_->getNotifs(notifs);
     }
 
     nixl_status_t
     genNotif(const std::string &peer, const std::string &message) const override {
+        if (const auto status = injectedStatus(backend_method_t::GEN_NOTIF, std::nullopt)) {
+            return *status;
+        }
         return engine_->genNotif(peer, message);
     }
 
     nixl_status_t
     queryMem(const nixl_reg_dlist_t &descs,
              std::vector<nixl_query_resp_t> &responses) const override {
+        if (const auto status = injectedStatus(backend_method_t::QUERY_MEM, std::nullopt)) {
+            return *status;
+        }
         return engine_->queryMem(descs, responses);
     }
 
@@ -205,11 +267,19 @@ public:
                      std::chrono::microseconds &margin,
                      nixl_cost_t &method,
                      const nixl_opt_args_t *args = nullptr) const override {
+        if (const auto status = injectedStatus(backend_method_t::ESTIMATE_XFER_COST, operation)) {
+            return *status;
+        }
         return engine_->estimateXferCost(
             operation, local, remote, peer, handle, duration, margin, method, args);
     }
 
 private:
+    std::optional<nixl_status_t>
+    injectedStatus(backend_method_t method, std::optional<nixl_xfer_op_t> operation) const {
+        return runtime_ ? runtime_->evaluate(method, operation) : std::nullopt;
+    }
+
     // Validate before the base constructor dereferences params; a null parameter map is valid.
     static const nixlBackendInitParams *
     validateParams(const nixlBackendInitParams *params) {
@@ -219,6 +289,7 @@ private:
         return params;
     }
 
+    std::shared_ptr<faultRuntime> runtime_;
     // Own the genuine engine and invoke its deleter on destruction or constructor failure.
     engine_ptr_t engine_;
 };

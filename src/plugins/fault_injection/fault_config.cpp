@@ -22,6 +22,7 @@
 #include <toml++/toml.hpp>
 
 #include <fstream>
+#include <iomanip>
 #include <initializer_list>
 #include <iterator>
 #include <sstream>
@@ -200,7 +201,33 @@ namespace {
         }
     }
 
+    template<class T, size_t N>
+    std::string_view
+    symbolName(T symbol, const std::pair<std::string_view, T> (&symbols)[N]) {
+        for (const auto &[name, value] : symbols) {
+            if (value == symbol) {
+                return name;
+            }
+        }
+        return "unknown";
+    }
+
 } // namespace
+
+std::string_view
+methodName(backend_method_t method) {
+    return symbolName(method, methods);
+}
+
+std::string_view
+statusName(nixl_status_t status) {
+    return symbolName(status, statuses);
+}
+
+std::string_view
+operationName(nixl_xfer_op_t operation) {
+    return symbolName(operation, operations);
+}
 
 faultConfig
 faultConfig::parse(std::string_view text) {
@@ -229,6 +256,14 @@ faultConfig::parse(std::string_view text) {
         section.rejectAndThrow("real_plugin_path", "must name a file, not a directory");
     }
     config.rules_ = parseRules(section);
+    uint64_t digest = 14695981039346656037ULL;
+    for (const unsigned char byte : text) {
+        digest ^= byte;
+        digest *= 1099511628211ULL;
+    }
+    std::ostringstream fingerprint;
+    fingerprint << "fnv1a64:" << std::hex << std::setfill('0') << std::setw(16) << digest;
+    config.digest_ = fingerprint.str();
     return config;
 }
 

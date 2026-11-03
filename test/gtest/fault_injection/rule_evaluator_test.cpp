@@ -191,4 +191,39 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
     EXPECT_EQ(evaluator.evaluate(backend_method_t::DISCONNECT, std::nullopt), nullptr);
 }
 
+TEST(ruleEvaluatorTest, ConcurrentRulesForSameMethodShareCallOrder) {
+    // Both rules see every call, so counter claims must agree on which call came first.
+    constexpr int thread_count = 8;
+    constexpr int calls_per_thread = 4;
+    ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
+id = "first"
+method = "connect"
+inject_on_occurrence = 1
+status = "NIXL_ERR_BACKEND"
+[[fault_injection.rules]]
+id = "second"
+method = "connect"
+inject_on_occurrence = 2
+status = "NIXL_ERR_CANCELED"
+)"));
+    std::atomic<unsigned> selections{0};
+    std::barrier start(thread_count);
+    std::vector<std::jthread> workers;
+    workers.reserve(thread_count);
+    for (int index = 0; index < thread_count; ++index) {
+        workers.emplace_back([&] {
+            start.arrive_and_wait();
+            for (int call = 0; call < calls_per_thread; ++call) {
+                if (evaluator.evaluate(backend_method_t::CONNECT, std::nullopt)) {
+                    selections.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+    for (auto &worker : workers) {
+        worker.join();
+    }
+    EXPECT_EQ(selections.load(), 2U);
+}
+
 } // namespace

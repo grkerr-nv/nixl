@@ -31,11 +31,15 @@ of the schema-version-1 status-rule configuration. `rule_evaluator.h` provides
 const auto config = nixl::fault::faultConfig::load("/absolute/path/to/fault.toml");
 const auto &plugin_path = config.getRealPluginPath();
 const auto &experiment_id = config.getExperimentId();
+const auto &digest = config.getDigest();
 const auto &rules = config.getRules();
 ```
 
 `parse` takes TOML text instead of a path. Both copy what they need, so the
 source can change or disappear afterwards.
+
+`getDigest()` returns a stable `fnv1a64:` fingerprint of the original TOML bytes
+for run correlation. Whitespace changes alter it; it is not a cryptographic hash.
 
 The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
 lifetime and uses `getRealPluginPath()` to load the genuine backend.
@@ -64,6 +68,9 @@ injection still advances the later rule, which can reach its occurrence before t
 backend has run that many. Concurrent calls are safe: exactly one caller takes a rule to its
 configured occurrence and receives it. Returned rule pointers remain valid until
 the evaluator is destroyed.
+
+Rules whose selectors overlap advance together, so every counter agrees on the
+order of concurrent calls. Independent selectors retain atomic one-shot counters.
 
 Counters live in the evaluator, so a second evaluator over the same configuration
 restarts them. The proxy constructs one per loaded plugin and shares it with every
@@ -155,9 +162,10 @@ read, and prepends the path to schema and TOML errors.
 This component represents status rules only. Request-handle corruption fields
 are rejected until their schema is defined.
 
-An inert consumer must reject nonempty rules until it can execute them, so the
-proxy still does. Connecting this evaluator to backend calls and logging
-injections is separate work.
+The proxy evaluates these rules before each status-returning backend call. When
+a rule fires, it logs the injection and returns that status without invoking the
+genuine backend. Non-status methods always forward. Output arguments remain
+unchanged on suppressed calls; request-handle corruption is not implemented.
 
 Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
 setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter

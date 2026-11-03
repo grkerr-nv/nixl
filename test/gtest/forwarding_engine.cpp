@@ -17,6 +17,9 @@
 #include "../../src/plugins/fault_injection/forwarding_engine.h"
 #include "mocks/gmock_engine.h"
 
+#include <absl/log/globals.h>
+#include <functional>
+
 using testing::AllOf;
 using testing::DoAll;
 using testing::Eq;
@@ -59,6 +62,14 @@ protected:
                                  .customParams = &custom,
                                  .syncMode = nixl_thread_sync_t::NIXL_THREAD_SYNC_NONE};
     using Mock = testing::StrictMock<ForwardingMock>;
+
+    std::shared_ptr<nixl::fault::faultRuntime>
+    makeRuntime(const std::string &rules) {
+        return std::make_shared<nixl::fault::faultRuntime>(nixl::fault::faultConfig::parse(
+            "[fault_injection]\nschema_version = 1\nexperiment_id = 'injection-test'\n"
+            "real_plugin_path = '/not-installed/libplugin_UCX.so'\n" +
+            rules));
+    }
 
     std::unique_ptr<Mock, engineDeleter>
     makeEngine(int *destructions = nullptr) {
@@ -337,6 +348,137 @@ TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
     EXPECT_EQ(duration.count(), 123);
     EXPECT_EQ(margin.count(), 7);
     EXPECT_EQ(method, nixl_cost_t::ANALYTICAL_BACKEND);
+}
+
+TEST_F(ForwardingEngineTest, SuppressesEveryStatusMethodAndPreservesOutputs) {
+    nixlBlobDesc desc(0x1234, 256, 7);
+    nixlBackendMD metadata(false);
+    nixlBackendMD *output = &metadata;
+    nixlBackendReqH request;
+    nixlBackendReqH *handle = &request;
+    int view_marker = 0;
+    nixlMemViewH view = &view_marker;
+    nixl_meta_dlist_t local(DRAM_SEG), remote(DRAM_SEG);
+    nixl_remote_meta_dlist_t remote_view(DRAM_SEG);
+    nixl_reg_dlist_t registration(DRAM_SEG);
+    std::string data = "unchanged";
+    notif_list_t notifications{{"peer", "unchanged"}};
+    std::vector<nixl_query_resp_t> responses{nixl_b_params_t{{"keep", "value"}}};
+    std::chrono::microseconds duration{123}, margin{7};
+    nixl_cost_t cost_method = nixl_cost_t::ANALYTICAL_BACKEND;
+
+    struct statusCall {
+        const char *method;
+        std::function<nixl_status_t(nixlBackendEngine &)> invoke;
+    };
+
+    const statusCall calls[] = {
+        {"registerMem", [&](auto &engine) { return engine.registerMem(desc, DRAM_SEG, output); }},
+        {"deregisterMem", [&](auto &engine) { return engine.deregisterMem(output); }},
+        {"connect", [](auto &engine) { return engine.connect("peer"); }},
+        {"disconnect", [](auto &engine) { return engine.disconnect("peer"); }},
+        {"unloadMD", [&](auto &engine) { return engine.unloadMD(output); }},
+        {"prepXfer",
+         [&](auto &engine) { return engine.prepXfer(NIXL_WRITE, local, remote, "peer", handle); }},
+        {"postXfer",
+         [&](auto &engine) { return engine.postXfer(NIXL_READ, local, remote, "peer", handle); }},
+        {"checkXfer", [&](auto &engine) { return engine.checkXfer(handle); }},
+        {"releaseReqH", [&](auto &engine) { return engine.releaseReqH(handle); }},
+        {"prepMemView", [&](auto &engine) { return engine.prepMemView(local, view); }},
+        {"prepMemView", [&](auto &engine) { return engine.prepMemView(remote_view, view); }},
+        {"getPublicData", [&](auto &engine) { return engine.getPublicData(output, data); }},
+        {"getConnInfo", [&](auto &engine) { return engine.getConnInfo(data); }},
+        {"loadRemoteConnInfo",
+         [](auto &engine) { return engine.loadRemoteConnInfo("peer", "connection"); }},
+        {"loadRemoteMD",
+         [&](auto &engine) { return engine.loadRemoteMD(desc, DRAM_SEG, "peer", output); }},
+        {"loadLocalMD", [&](auto &engine) { return engine.loadLocalMD(&metadata, output); }},
+        {"getNotifs", [&](auto &engine) { return engine.getNotifs(notifications); }},
+        {"genNotif", [](auto &engine) { return engine.genNotif("peer", "message"); }},
+        {"queryMem", [&](auto &engine) { return engine.queryMem(registration, responses); }},
+        {"estimateXferCost",
+         [&](auto &engine) {
+             return engine.estimateXferCost(
+                 NIXL_WRITE, local, remote, "peer", handle, duration, margin, cost_method);
+         }},
+    };
+    for (const auto &call : calls) {
+        SCOPED_TRACE(call.method);
+        const auto runtime =
+            makeRuntime("[[fault_injection.rules]]\nid = 'suppress-call'\nmethod = '" +
+                        std::string(call.method) +
+                        "'\ninject_on_occurrence = 1\nstatus = 'NIXL_ERR_BACKEND'\n");
+        // StrictMock rejects any genuine call; each route gets its own isolated rule.
+        forwardingEngine wrapper(&params, makeEngine(), runtime);
+        EXPECT_EQ(call.invoke(wrapper), NIXL_ERR_BACKEND);
+    }
+    EXPECT_EQ(output, &metadata);
+    EXPECT_EQ(handle, &request);
+    EXPECT_EQ(view, &view_marker);
+    EXPECT_EQ(data, "unchanged");
+    EXPECT_EQ(notifications, (notif_list_t{{"peer", "unchanged"}}));
+    EXPECT_EQ(responses, (std::vector<nixl_query_resp_t>{nixl_b_params_t{{"keep", "value"}}}));
+    EXPECT_EQ(duration.count(), 123);
+    EXPECT_EQ(margin.count(), 7);
+    EXPECT_EQ(cost_method, nixl_cost_t::ANALYTICAL_BACKEND);
+}
+
+TEST_F(ForwardingEngineTest, InjectsSuccessAndInProgressThenResumesForwarding) {
+    const auto runtime = makeRuntime(R"([[fault_injection.rules]]
+id = "first"
+method = "connect"
+inject_on_occurrence = 1
+status = "NIXL_SUCCESS"
+[[fault_injection.rules]]
+id = "second"
+method = "connect"
+inject_on_occurrence = 2
+status = "NIXL_IN_PROG"
+)");
+    auto engine = makeEngine();
+    EXPECT_CALL(*engine, connect("peer")).WillOnce(Return(NIXL_ERR_REMOTE_DISCONNECT));
+    forwardingEngine wrapper(&params, std::move(engine), runtime);
+    EXPECT_EQ(wrapper.connect("peer"), NIXL_SUCCESS);
+    EXPECT_EQ(wrapper.connect("peer"), NIXL_IN_PROG);
+    EXPECT_EQ(wrapper.connect("peer"), NIXL_ERR_REMOTE_DISCONNECT);
+}
+
+TEST_F(ForwardingEngineTest, LogsConfigurationAndInjectionWithStableIdentity) {
+    const auto runtime = makeRuntime(R"([[fault_injection.rules]]
+id = 'quoted "rule"'
+method = "postXfer"
+inject_on_occurrence = 1
+status = "NIXL_ERR_BACKEND"
+)");
+    const auto previous_min = absl::MinLogLevel();
+    const auto previous_stderr = absl::StderrThreshold();
+    absl::SetMinLogLevel(absl::LogSeverityAtLeast::kInfo);
+    absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+    testing::internal::CaptureStderr();
+    runtime->logConfiguration();
+    const auto first = runtime->evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
+    const auto second = runtime->evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
+    const auto log = testing::internal::GetCapturedStderr();
+    absl::SetMinLogLevel(previous_min);
+    absl::SetStderrThreshold(previous_stderr);
+    EXPECT_EQ(first, NIXL_ERR_BACKEND);
+    EXPECT_FALSE(second);
+    EXPECT_NE(log.find("event=nixl_fault_config"), std::string::npos);
+    EXPECT_NE(log.find("event=nixl_fault_rule"), std::string::npos);
+    const auto injection = log.find("event=nixl_fault_injection");
+    ASSERT_NE(injection, std::string::npos);
+    EXPECT_EQ(log.find("event=nixl_fault_injection", injection + 1), std::string::npos);
+    EXPECT_NE(log.find("experiment_id=\"injection-test\"", injection), std::string::npos);
+    EXPECT_NE(log.find("config_digest=" + runtime->getConfig().getDigest(), injection),
+              std::string::npos);
+    EXPECT_NE(log.find("rule_id=\"quoted \\\"rule\\\"\"", injection), std::string::npos);
+    EXPECT_NE(log.find("method=postXfer operation=NIXL_WRITE occurrence=1 status=NIXL_ERR_BACKEND",
+                       injection),
+              std::string::npos);
+    const auto same = nixl::fault::faultConfig::parse(
+        "[fault_injection]\nschema_version = 1\nexperiment_id = 'injection-test'\n"
+        "real_plugin_path = '/not-installed/libplugin_UCX.so'\n");
+    EXPECT_NE(same.getDigest(), runtime->getConfig().getDigest());
 }
 
 } // namespace

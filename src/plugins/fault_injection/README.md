@@ -17,7 +17,7 @@ limitations under the License.
 
 # Resiliency backend proxy
 
-The inert proxy connects `pluginLoader` to `forwardingEngine` through the normal
+The fault-injection proxy connects `pluginLoader` to `forwardingEngine` through the normal
 NIXL plugin entrypoints. It preserves the genuine plugin's name, version, backend
 options, memory types, engine initialization parameters, and forwarding behavior.
 It requires the existing toml++ and dynamic-loader dependencies; UCX is needed
@@ -61,10 +61,31 @@ rules = []
 symlink. The configuration file is required even with no injection rules because
 the proxy cannot infer the genuine library's location. Missing or invalid
 configuration fails plugin initialization with a NIXL error log. The proxy uses
-`faultConfig::load` for the shared [TOML schema and validation](fault_config.md),
-then rejects nonempty rules because injection is not implemented in this chunk.
-Successful initialization logs the backend name and `experiment_id`, so a run can
-be traced back to the configuration that produced it.
+`faultConfig::load` for the shared [TOML schema and validation](fault_config.md).
+An empty rule list forwards all calls. To fail the first write submitted through
+`postXfer`, replace `rules = []` above with:
+
+```toml
+[[fault_injection.rules]]
+id = "first-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 1
+status = "NIXL_ERR_BACKEND"
+```
+
+The selected call returns the configured status without invoking the genuine
+backend. The rule is then spent; later calls forward normally. Engines share one
+evaluator per initialized plugin lifetime, so creating another engine does not
+restart the counts. Injection leaves output arguments unchanged and fabricates
+no metadata, memory views, or request handles.
+
+Set `NIXL_LOG_LEVEL=INFO` before starting the process to capture configuration,
+rule, and injection records. `NIXL_LOG_FILE` can also mirror them to a file.
+Each record carries `experiment_id` and `config_digest`; injection records add
+`rule_id`, `method`, the actual `operation`, `occurrence`, and `status`. String
+values are quoted and escaped. The digest is a stable FNV-1a fingerprint of the
+original TOML bytes for run correlation, not a cryptographic integrity check.
 
 The proxy reads configuration once per initialized lifetime. Matching calls to
 `nixl_plugin_init` and `nixl_plugin_fini` share that state. Genuine engines retain
@@ -96,7 +117,7 @@ name differs from the one core looked up.
 ## Forwarding helper
 
 `forwarding_engine.h` provides `nixl::fault::forwardingEngine`, a header-only
-helper for the planned fault-injection proxy. It forwards every current
+helper for the fault-injection proxy. It forwards every current
 `nixlBackendEngine` virtual method, including optional methods and both
 memory-view overloads.
 
@@ -106,9 +127,13 @@ for loading a genuine backend by path.
 
 ## Ownership and use
 
-The proxy plugin will create the genuine engine with the original initialization
-parameters, move it into `forwardingEngine`, and return the wrapper to NIXL.
-vLLM will continue requesting UCX normally.
+The proxy plugin creates the genuine engine with the original initialization
+parameters, moves it into `forwardingEngine`, and returns the wrapper to NIXL.
+vLLM continues requesting UCX normally.
+
+The ownership example below shows an inert wrapper. Passing a shared
+`faultRuntime` as the third constructor argument enables rule evaluation; the
+wrapper retains it until engine destruction.
 
 The proxy's `create_engine` callback must catch construction failures and return
 `nullptr`, as core does not catch exceptions from this callback. Here `plugin`
@@ -161,7 +186,7 @@ reads the wrapper's own empty queue. No backend currently calls
 `addTelemetryEvent`, and core does not call `getTelemetryEvents`. If that changes,
 drain the genuine engine's public `getTelemetryEvents()` into the wrapper queue.
 
-Fault rule evaluation, injection, and overhead measurement remain separate work.
+Overhead measurement remains separate work.
 Functional tests do not prove the design's
 statistical non-perturbation requirement.
 
@@ -182,8 +207,10 @@ meson test -C build plugin_loader forwarding_engine proxy_plugin proxy_discovery
 ```
 
 With a dynamic UCX backend and a non-debug build,
-`meson test -C build proxy_ucx --print-errorlogs` also exercises a two-agent,
-same-host DRAM transfer through normal NIXL discovery. UCX must be able to open
+`meson test -C build proxy_ucx proxy_ucx_injection --print-errorlogs` exercises a
+two-agent, same-host DRAM transfer through normal NIXL discovery, both inert and
+with an injected first-write failure followed by a successful transfer. Each mode
+runs in a fresh process because core caches loaded plugins. UCX must be able to open
 its transport sockets; restricted sandboxes may prevent this test from running.
 This smoke test does not establish multi-node behavior or inert-proxy overhead.
 

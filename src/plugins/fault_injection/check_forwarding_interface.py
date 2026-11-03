@@ -42,6 +42,20 @@ if expected != actual:
         f"Forwarding interface mismatch: missing {dict(expected - actual)}, "
         f"unexpected {dict(actual - expected)}. Update the forwarder and its tests."
     )
+status_methods = Counter(re.findall(r"\bvirtual\s+nixl_status_t\s+(\w+)\s*\(", backend))
+injected_methods = Counter(
+    re.findall(
+        r"\bnixl_status_t\s+(\w+)\s*\([^;{}]*\)\s*(?:const\s+)?override\s*"
+        r"\{\s*if\s*\(const\s+auto\s+status\s*=\s*injectedStatus\(",
+        forwarder,
+    )
+)
+if not status_methods or status_methods != injected_methods:
+    sys.exit(
+        f"Injection interface mismatch: missing {dict(status_methods - injected_methods)}, "
+        f"unexpected {dict(injected_methods - status_methods)}. Update status interception."
+    )
 sys.stdout.write(
-    f"All {sum(expected.values())} backend virtual methods are forwarded.\n"
+    f"All {sum(expected.values())} backend virtual methods are forwarded; "
+    f"{sum(status_methods.values())} status routes support injection.\n"
 )

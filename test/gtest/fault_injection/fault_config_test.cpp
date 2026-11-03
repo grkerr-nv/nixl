@@ -84,6 +84,13 @@ status = "NIXL_ERR_REMOTE_DISCONNECT"
     EXPECT_EQ(second.status, NIXL_ERR_REMOTE_DISCONNECT);
 }
 
+TEST(faultConfigTest, FingerprintsExactConfigurationBytes) {
+    const auto digest = faultConfig::parse(config_text).getDigest();
+    EXPECT_EQ(digest, faultConfig::parse(config_text).getDigest());
+    EXPECT_TRUE(digest.starts_with("fnv1a64:"));
+    EXPECT_NE(digest, faultConfig::parse(std::string(config_text) + "\n").getDigest());
+}
+
 TEST(faultConfigTest, AcceptsOmittedAndEmptyRules) {
     EXPECT_TRUE(faultConfig::parse(config_text).getRules().empty());
     EXPECT_TRUE(faultConfig::parse(std::string(config_text) + "rules = []\n").getRules().empty());

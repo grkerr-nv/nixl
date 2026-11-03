@@ -17,6 +17,7 @@
 
 #include "rule_evaluator.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
@@ -46,6 +47,17 @@ namespace {
 ruleEvaluator::ruleEvaluator(const faultConfig &config) {
     rules_.reserve(config.getRules().size());
     for (const auto &rule : config.getRules()) {
+        const bool shares_calls =
+            std::any_of(rules_.begin(), rules_.end(), [&rule](const auto &other) {
+                return other.rule.method == rule.method &&
+                    (!other.rule.operation || !rule.operation ||
+                     other.rule.operation == rule.operation);
+            });
+        if (shares_calls &&
+            std::find(serializedMethods_.begin(), serializedMethods_.end(), rule.method) ==
+                serializedMethods_.end()) {
+            serializedMethods_.push_back(rule.method);
+        }
         rules_.emplace_back(rule, rule.injectOnOccurrence);
     }
 }
@@ -55,6 +67,21 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
     // A method and operation that disagree match no rule, so the call injects nothing and
     // the run looks clean. The parser holds rule definitions to the same pairing.
     assert(operation.has_value() == carriesOperation(method));
+    std::unique_lock lock(orderingMutex_, std::defer_lock);
+    if (std::find(serializedMethods_.begin(), serializedMethods_.end(), method) !=
+        serializedMethods_.end()) {
+        const bool active =
+            std::any_of(rules_.begin(), rules_.end(), [method, operation](const auto &rule_state) {
+                return rule_state.rule.method == method &&
+                    (!rule_state.rule.operation || rule_state.rule.operation == operation) &&
+                    rule_state.remaining.load(std::memory_order_relaxed) != 0;
+            });
+        if (!active) {
+            return nullptr;
+        }
+        // Independent atomic counters alone can order the same two calls differently.
+        lock.lock();
+    }
     const faultRule *firing = nullptr;
     for (auto &rule_state : rules_) {
         // Rule definitions are immutable, so a call that matches nothing touches no

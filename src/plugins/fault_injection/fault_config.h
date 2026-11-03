@@ -61,6 +61,15 @@ enum class backend_method_t {
 [[nodiscard]] bool
 carriesOperation(backend_method_t method);
 
+[[nodiscard]] std::string_view
+methodName(backend_method_t method);
+
+[[nodiscard]] std::string_view
+statusName(nixl_status_t status);
+
+[[nodiscard]] std::string_view
+operationName(nixl_xfer_op_t operation);
+
 /** A validated rule definition. Occurrence counters belong to the runtime evaluator.
  *
  * Rules within one configuration never overlap, so at most one rule fires on any call and
@@ -108,6 +117,12 @@ public:
         return experimentId_;
     }
 
+    /** Stable FNV-1a fingerprint of the original TOML bytes, for run correlation. */
+    [[nodiscard]] const std::string &
+    getDigest() const {
+        return digest_;
+    }
+
     [[nodiscard]] const std::filesystem::path &
     getRealPluginPath() const {
         return realPluginPath_;
@@ -122,6 +137,7 @@ private:
     faultConfig() = default;
 
     std::string experimentId_;
+    std::string digest_;
     std::filesystem::path realPluginPath_;
     std::vector<faultRule> rules_;
 };
