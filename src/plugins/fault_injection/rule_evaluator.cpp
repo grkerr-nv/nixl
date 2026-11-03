@@ -33,9 +33,9 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
     if (activeRules_.load(std::memory_order_relaxed) == 0) {
         return nullptr;
     }
-    const auto matches = [method, operation](const ruleState &state) {
-        return state.rule.method == method &&
-            (!state.rule.operation || state.rule.operation == operation);
+    const auto matches = [method, operation](const ruleState &rule_state) {
+        return rule_state.rule.method == method &&
+            (!rule_state.rule.operation || rule_state.rule.operation == operation);
     };
     // Only immutable rule definitions are read before locking, never the countdowns.
     if (std::none_of(rules_.begin(), rules_.end(), matches)) {
@@ -43,14 +43,14 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
     }
     const std::lock_guard lock(mutex_);
     const faultRule *firing = nullptr;
-    for (auto &state : rules_) {
-        if (!matches(state) || state.remaining == 0) {
+    for (auto &rule_state : rules_) {
+        if (!matches(rule_state) || rule_state.remaining == 0) {
             continue;
         }
         // Count down to zero so spent rules cannot wrap around and fire again.
         // The mutex lets only one caller make the transition from 1 to 0.
-        if (--state.remaining == 0) {
-            firing = &state.rule;
+        if (--rule_state.remaining == 0) {
+            firing = &rule_state.rule;
             activeRules_.fetch_sub(1, std::memory_order_relaxed);
         }
     }
