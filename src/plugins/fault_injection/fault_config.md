@@ -134,7 +134,12 @@ immutable definitions, and a spent rule costs one relaxed atomic load, so the
 backend path pays nothing for rules that cannot fire. Matching rules count down
 atomically, so exactly one caller can take a rule from 1 to 0 and select it.
 Returned rule pointers remain valid until
-the evaluator is destroyed. Construct a new evaluator for fresh counters.
+the evaluator is destroyed.
+
+Counters live in the evaluator, so a second evaluator over the same configuration
+restarts them. The proxy constructs one per loaded plugin and shares it with every
+backend engine; one per engine would inject each rule once per engine instead of
+once per run.
 
 The proxy still rejects nonempty rules. Connecting this evaluator to backend
 calls and logging injections is separate work.
