@@ -16,11 +16,13 @@
  */
 
 #include "rule_evaluator.h"
+#include "common/nixl_log.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <iomanip>
 
 namespace nixl::fault {
 namespace {
@@ -109,9 +111,17 @@ ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> o
         }
         if (claimOccurrence(rule_state.remaining) == 1) {
             // The parser rejects rules that can fire on the same call, so at most one
-            // reaches zero here. Assert it rather than quietly discarding the other: a
-            // future selector that overlapReason does not know about would otherwise
-            // inject whichever status came later in the file.
+            // reaches zero here. A future selector that overlapReason does not know about
+            // would break that, and the rule left behind is already spent, so it never
+            // fires at all. Say so before taking the later one, because release builds
+            // define NDEBUG and lose the assert that would otherwise stop here.
+            if (firing != nullptr) {
+                NIXL_WARN << "event=nixl_fault_double_claim dropped_rule_id="
+                          << std::quoted(firing->id)
+                          << " kept_rule_id=" << std::quoted(rule_state.rule.id)
+                          << " method=" << methodName(method)
+                          << " - one call claimed two rules and only one status is returned";
+            }
             assert(firing == nullptr);
             firing = &rule_state.rule;
         }
