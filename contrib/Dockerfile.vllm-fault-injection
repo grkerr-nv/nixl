@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build this base with contrib/Dockerfile.vllm and fault-injection-enabled wheels.
+ARG BASE_IMAGE=nixl-vllm:latest
+FROM ${BASE_IMAGE}
+
+# Keep libraries in the wheel so their relative dependency paths remain valid.
+RUN python3 - <<'PY'
+import ctypes
+from pathlib import Path
+
+from nixl import _api
+
+plugin_dir = (
+    Path(_api.__file__).resolve().parent.parent
+    / f".{_api.__package__}.mesonpy.libs"
+    / "plugins"
+)
+proxy = plugin_dir / "fault_injection/libnixl_fault_proxy.so"
+genuine = plugin_dir / "libplugin_UCX.so"
+for library in (proxy, genuine):
+    if not library.is_file():
+        raise RuntimeError(
+            f"Missing {library}; rebuild the NIXL wheel with "
+            "-Dbuild_fault_injection=true -Denable_plugins=UCX"
+        )
+    ctypes.CDLL(str(library))
+
+root = Path("/opt/nixl-fault")
+root.mkdir()
+# Keep $ORIGIN relative to the original plugin directory, including repaired wheels.
+proxy.with_name("libplugin_UCX.so").symlink_to(proxy.name)
+(root / "inert.toml").write_text(
+    "[fault_injection]\n"
+    "schema_version = 1\n"
+    'experiment_id = "inert-vllm-ucx"\n'
+    f'real_plugin_path = "{genuine}"\n'
+    "rules = []\n"
+)
+entrypoint = Path("/usr/local/bin/nixl-fault-entrypoint")
+entrypoint.write_text(
+    "#!/bin/sh\n"
+    f'export NIXL_PLUGIN_DIR="${{NIXL_PLUGIN_DIR:-{proxy.parent}}}"\n'
+    'exec vllm serve "$@"\n'
+)
+entrypoint.chmod(0o755)
+PY
+
+ENV NIXL_PLUGIN_DIR="" \
+    NIXL_FAULT_CONFIG_FILE=/opt/nixl-fault/inert.toml \
+    NIXL_LOG_LEVEL=INFO
+
+ENTRYPOINT ["/usr/local/bin/nixl-fault-entrypoint"]
