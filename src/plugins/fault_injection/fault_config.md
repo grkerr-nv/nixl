@@ -179,10 +179,14 @@ are rejected until their schema is defined.
 
 The proxy evaluates these rules before each status-returning backend call. When
 a rule fires, it logs the injection and returns that status without invoking the
-genuine backend. Non-status methods always forward. Output arguments remain
-unchanged on suppressed calls, which is why the status vocabulary above is
-narrowed for the methods that owe one; request-handle corruption is not
-implemented.
+genuine backend. Cleanup is the exception: an injected error on `deregisterMem`,
+`disconnect`, `unloadMD`, or `releaseReqH` runs the genuine call first, because
+core releases its own handle either way and nothing would ask the backend a
+second time, so suppressing it would strand the resource. A non-error status on
+those still suppresses the call, injecting cleanup claimed but not performed.
+Non-status methods always forward. Output arguments remain unchanged on
+suppressed calls, which is why the status vocabulary above is narrowed for the
+methods that owe one; request-handle corruption is not implemented.
 
 Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
 setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter

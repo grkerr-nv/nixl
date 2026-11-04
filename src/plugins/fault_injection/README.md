@@ -75,10 +75,15 @@ status = "NIXL_ERR_BACKEND"
 ```
 
 The selected call returns the configured status without invoking the genuine
-backend. The rule is then spent; later calls forward normally. Engines share one
-evaluator per initialized plugin lifetime, so creating another engine does not
-restart the counts. Injection leaves output arguments unchanged and fabricates
-no metadata, memory views, or request handles. Because it cannot write one, the
+backend. The cleanup methods are the exception: an injected error on
+`deregisterMem`, `disconnect`, `unloadMD`, or `releaseReqH` runs the genuine
+call first, so the resource is released while the caller still sees the
+failure. A non-error status on those suppresses the call as usual, which is
+how to inject cleanup that was claimed but never performed. The rule is then
+spent; later calls forward normally. Engines share one evaluator per
+initialized plugin lifetime, so creating another engine does not restart the
+counts. Injection leaves output arguments unchanged and fabricates no
+metadata, memory views, or request handles. Because it cannot write one, the
 parser rejects `NIXL_SUCCESS` and `NIXL_IN_PROG` for the methods that owe the
 caller an output argument; see [the status vocabulary](fault_config.md).
 
