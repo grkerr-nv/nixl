@@ -79,9 +79,6 @@ writesOutputOnSuccess(backend_method_t method) {
     return false;
 }
 
-// Injection hands the caller this status instead of the genuine backend's, so whether a
-// status is an error decides whether the caller is sent to read an output argument that
-// nothing wrote. Named rather than derived from the sign, which nixl_types.h never promises.
 bool
 isErrorStatus(nixl_status_t status) {
     switch (status) {
