@@ -61,6 +61,10 @@ enum class backend_method_t {
 [[nodiscard]] bool
 carriesOperation(backend_method_t method);
 
+/** Whether this status reports a failure rather than a result. */
+[[nodiscard]] bool
+isErrorStatus(nixl_status_t status);
+
 /** Whether a successful call must write an output argument the caller then reads.
  *
  * Injection substitutes a status for a call that never ran, so a non-error status here leaves

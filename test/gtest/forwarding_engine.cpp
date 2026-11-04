@@ -350,7 +350,9 @@ TEST_F(ForwardingEngineTest, PreservesOptionalMethodOutputs) {
     EXPECT_EQ(method, nixl_cost_t::ANALYTICAL_BACKEND);
 }
 
-TEST_F(ForwardingEngineTest, SuppressesEveryStatusMethodAndPreservesOutputs) {
+// The four cleanup methods are deliberately absent: they forward an injected error rather
+// than suppress it, and RunsCleanupOnlyForAnInjectedError covers them.
+TEST_F(ForwardingEngineTest, SuppressesStatusMethodsAndPreservesOutputs) {
     nixlBlobDesc desc(0x1234, 256, 7);
     nixlBackendMD metadata(false);
     nixlBackendMD *output = &metadata;
@@ -374,16 +376,12 @@ TEST_F(ForwardingEngineTest, SuppressesEveryStatusMethodAndPreservesOutputs) {
 
     const statusCall calls[] = {
         {"registerMem", [&](auto &engine) { return engine.registerMem(desc, DRAM_SEG, output); }},
-        {"deregisterMem", [&](auto &engine) { return engine.deregisterMem(output); }},
         {"connect", [](auto &engine) { return engine.connect("peer"); }},
-        {"disconnect", [](auto &engine) { return engine.disconnect("peer"); }},
-        {"unloadMD", [&](auto &engine) { return engine.unloadMD(output); }},
         {"prepXfer",
          [&](auto &engine) { return engine.prepXfer(NIXL_WRITE, local, remote, "peer", handle); }},
         {"postXfer",
          [&](auto &engine) { return engine.postXfer(NIXL_READ, local, remote, "peer", handle); }},
         {"checkXfer", [&](auto &engine) { return engine.checkXfer(handle); }},
-        {"releaseReqH", [&](auto &engine) { return engine.releaseReqH(handle); }},
         {"prepMemView", [&](auto &engine) { return engine.prepMemView(local, view); }},
         {"prepMemView", [&](auto &engine) { return engine.prepMemView(remote_view, view); }},
         {"getPublicData", [&](auto &engine) { return engine.getPublicData(output, data); }},
@@ -421,6 +419,62 @@ TEST_F(ForwardingEngineTest, SuppressesEveryStatusMethodAndPreservesOutputs) {
     EXPECT_EQ(duration.count(), 123);
     EXPECT_EQ(margin.count(), 7);
     EXPECT_EQ(cost_method, nixl_cost_t::ANALYTICAL_BACKEND);
+}
+
+TEST_F(ForwardingEngineTest, RunsCleanupOnlyForAnInjectedError) {
+    nixlBackendMD metadata(false);
+    nixlBackendReqH request;
+
+    struct cleanupCall {
+        const char *method;
+        std::function<void(Mock &)> expectGenuine;
+        std::function<nixl_status_t(nixlBackendEngine &)> invoke;
+    };
+
+    const cleanupCall calls[] = {
+        {"deregisterMem",
+         [&](Mock &mock) {
+             EXPECT_CALL(mock, deregisterMem(&metadata)).WillOnce(Return(NIXL_SUCCESS));
+         },
+         [&](auto &engine) { return engine.deregisterMem(&metadata); }},
+        {"disconnect",
+         [](Mock &mock) { EXPECT_CALL(mock, disconnect("peer")).WillOnce(Return(NIXL_SUCCESS)); },
+         [](auto &engine) { return engine.disconnect("peer"); }},
+        {"unloadMD",
+         [&](Mock &mock) { EXPECT_CALL(mock, unloadMD(&metadata)).WillOnce(Return(NIXL_SUCCESS)); },
+         [&](auto &engine) { return engine.unloadMD(&metadata); }},
+        {"releaseReqH",
+         [&](Mock &mock) {
+             EXPECT_CALL(mock, releaseReqH(&request)).WillOnce(Return(NIXL_SUCCESS));
+         },
+         [&](auto &engine) { return engine.releaseReqH(&request); }},
+    };
+
+    const auto ruleFor = [this](const char *method, const char *status) {
+        return makeRuntime("[[fault_injection.rules]]\nid = 'cleanup'\nmethod = '" +
+                           std::string(method) + "'\ninject_on_occurrence = 1\nstatus = '" +
+                           status + "'\n");
+    };
+
+    for (const auto &call : calls) {
+        SCOPED_TRACE(call.method);
+        {
+            // An error says the operation failed, not that it never happened. The genuine
+            // call runs so the resource is released, and its result is discarded so the
+            // caller still sees the injected failure.
+            auto engine = makeEngine();
+            call.expectGenuine(*engine);
+            forwardingEngine wrapper(
+                &params, std::move(engine), ruleFor(call.method, "NIXL_ERR_BACKEND"));
+            EXPECT_EQ(call.invoke(wrapper), NIXL_ERR_BACKEND);
+        }
+        {
+            // Success is the other fault: cleanup claimed and not performed. StrictMock sets
+            // no expectation here, so forwarding would fail the test.
+            forwardingEngine wrapper(&params, makeEngine(), ruleFor(call.method, "NIXL_SUCCESS"));
+            EXPECT_EQ(call.invoke(wrapper), NIXL_SUCCESS);
+        }
+    }
 }
 
 TEST_F(ForwardingEngineTest, InjectsSuccessAndInProgressThenResumesForwarding) {

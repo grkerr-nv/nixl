@@ -79,6 +79,35 @@ writesOutputOnSuccess(backend_method_t method) {
     return false;
 }
 
+// Injection hands the caller this status instead of the genuine backend's, so whether a
+// status is an error decides whether the caller is sent to read an output argument that
+// nothing wrote. Named rather than derived from the sign, which nixl_types.h never promises.
+bool
+isErrorStatus(nixl_status_t status) {
+    switch (status) {
+    case NIXL_SUCCESS:
+    case NIXL_IN_PROG:
+        return false;
+    case NIXL_ERR_NOT_POSTED:
+    case NIXL_ERR_INVALID_PARAM:
+    case NIXL_ERR_BACKEND:
+    case NIXL_ERR_NOT_FOUND:
+    case NIXL_ERR_MISMATCH:
+    case NIXL_ERR_NOT_ALLOWED:
+    case NIXL_ERR_REPOST_ACTIVE:
+    case NIXL_ERR_UNKNOWN:
+    case NIXL_ERR_NOT_SUPPORTED:
+    case NIXL_ERR_REMOTE_DISCONNECT:
+    case NIXL_ERR_CANCELED:
+    case NIXL_ERR_NO_TELEMETRY:
+        return true;
+    }
+    // Unreachable for the statuses a rule can name, which the table above fixes. An
+    // unclassified value counts as a non-error so it meets the output check rather than
+    // slipping past it.
+    return false;
+}
+
 namespace {
 
     constexpr std::pair<std::string_view, backend_method_t> methods[] = {
@@ -120,34 +149,6 @@ namespace {
         {"NIXL_ERR_NO_TELEMETRY", NIXL_ERR_NO_TELEMETRY},
     };
 
-    // Injection hands the caller this status instead of the genuine backend's, so whether a
-    // status is an error decides whether the caller is sent to read an output argument that
-    // nothing wrote. Named rather than derived from the sign, which nixl_types.h never promises.
-    constexpr bool
-    isErrorStatus(nixl_status_t status) {
-        switch (status) {
-        case NIXL_SUCCESS:
-        case NIXL_IN_PROG:
-            return false;
-        case NIXL_ERR_NOT_POSTED:
-        case NIXL_ERR_INVALID_PARAM:
-        case NIXL_ERR_BACKEND:
-        case NIXL_ERR_NOT_FOUND:
-        case NIXL_ERR_MISMATCH:
-        case NIXL_ERR_NOT_ALLOWED:
-        case NIXL_ERR_REPOST_ACTIVE:
-        case NIXL_ERR_UNKNOWN:
-        case NIXL_ERR_NOT_SUPPORTED:
-        case NIXL_ERR_REMOTE_DISCONNECT:
-        case NIXL_ERR_CANCELED:
-        case NIXL_ERR_NO_TELEMETRY:
-            return true;
-        }
-        // Unreachable for the statuses a rule can name, which the table above fixes. An
-        // unclassified value counts as a non-error so it meets the output check rather than
-        // slipping past it.
-        return false;
-    }
 
     constexpr std::pair<std::string_view, nixl_xfer_op_t> operations[] = {
         {"NIXL_READ", NIXL_READ},

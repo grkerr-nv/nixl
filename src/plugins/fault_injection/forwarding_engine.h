@@ -92,6 +92,11 @@ public:
     nixl_status_t
     deregisterMem(nixlBackendMD *meta) override {
         if (const auto status = injectedStatus(backend_method_t::DEREGISTER_MEM, std::nullopt)) {
+            // An error means the call failed, not that it never ran, so release the resource
+            // anyway. A non-error status is the other fault: cleanup claimed but not done.
+            if (isErrorStatus(*status)) {
+                engine_->deregisterMem(meta);
+            }
             return *status;
         }
         return engine_->deregisterMem(meta);
@@ -108,6 +113,11 @@ public:
     nixl_status_t
     disconnect(const std::string &peer) override {
         if (const auto status = injectedStatus(backend_method_t::DISCONNECT, std::nullopt)) {
+            // An error means the call failed, not that it never ran, so release the resource
+            // anyway. A non-error status is the other fault: cleanup claimed but not done.
+            if (isErrorStatus(*status)) {
+                engine_->disconnect(peer);
+            }
             return *status;
         }
         return engine_->disconnect(peer);
@@ -116,6 +126,11 @@ public:
     nixl_status_t
     unloadMD(nixlBackendMD *meta) override {
         if (const auto status = injectedStatus(backend_method_t::UNLOAD_MD, std::nullopt)) {
+            // An error means the call failed, not that it never ran, so release the resource
+            // anyway. A non-error status is the other fault: cleanup claimed but not done.
+            if (isErrorStatus(*status)) {
+                engine_->unloadMD(meta);
+            }
             return *status;
         }
         return engine_->unloadMD(meta);
@@ -158,6 +173,11 @@ public:
     nixl_status_t
     releaseReqH(nixlBackendReqH *handle) const override {
         if (const auto status = injectedStatus(backend_method_t::RELEASE_REQ_H, std::nullopt)) {
+            // An error means the call failed, not that it never ran, so release the resource
+            // anyway. A non-error status is the other fault: cleanup claimed but not done.
+            if (isErrorStatus(*status)) {
+                engine_->releaseReqH(handle);
+            }
             return *status;
         }
         return engine_->releaseReqH(handle);
