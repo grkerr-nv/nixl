@@ -195,6 +195,7 @@ absl_base_dep = dependency('absl_base', required: false)
 absl_log_dep = dependency('absl_log', required: false)
 absl_log_initialize_dep = dependency('absl_log_initialize', required: false)
 absl_flat_hash_map_dep = dependency('absl_flat_hash_map', required: false)
+absl_crc32c_dep = dependency('absl_crc32c', required: false)
 absl_status_dep = dependency('absl_status', required: false)
 absl_statusor_dep = dependency('absl_statusor', required: false)
 absl_strings_dep = dependency('absl_strings', required: false)
@@ -210,6 +211,7 @@ endif
 if not (absl_log_dep.found() and
         absl_log_initialize_dep.found() and
         absl_flat_hash_map_dep.found() and
+        absl_crc32c_dep.found() and
         absl_status_dep.found() and
         absl_statusor_dep.found() and
         absl_strings_dep.found() and
@@ -220,6 +222,7 @@ if not (absl_log_dep.found() and
   absl_log_dep = abseil_proj.get_variable('absl_log_dep')
   absl_log_initialize_dep = absl_log_dep
   absl_flat_hash_map_dep = abseil_proj.get_variable('absl_container_dep')
+  absl_crc32c_dep = abseil_proj.get_variable('absl_crc_dep')
   absl_status_dep = abseil_proj.get_variable('absl_status_dep')
   absl_statusor_dep = absl_status_dep
   absl_strings_dep = abseil_proj.get_variable('absl_strings_dep')

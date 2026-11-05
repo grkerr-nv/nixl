@@ -84,6 +84,12 @@ if is_variable('ucx_backend_lib') and 'UCX' not in static_plugins and get_option
         dependencies: [nixl_dep, nixl_infra, nixl_common_dep,
                        dependency('gtest', version: '>=1.11.0', main: true)])
     test('proxy_ucx', proxy_ucx_test,
+         args: ['--gtest_filter=proxyModes/proxyUcxTest.TransfersDramBetweenAgents/Forwarding'],
+         depends: [fault_proxy, ucx_backend_lib],
+         env: sanitizer_env, suite: ['resiliency', 'sanitizer'], timeout: 30)
+    # Each mode needs a fresh process: the plugin manager caches configuration.
+    test('proxy_ucx_injection', proxy_ucx_test,
+         args: ['--gtest_filter=proxyModes/proxyUcxTest.TransfersDramBetweenAgents/Injecting'],
          depends: [fault_proxy, ucx_backend_lib],
          env: sanitizer_env, suite: ['resiliency', 'sanitizer'], timeout: 30)
 endif
