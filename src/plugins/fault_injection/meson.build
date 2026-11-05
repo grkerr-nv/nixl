@@ -28,6 +28,7 @@ nixl_plugin_loader_dep = declare_dependency(
 
 fault_config_lib = static_library('nixl_fault_config',
     'fault_config.cpp',
+    'rule_evaluator.cpp',
     'table_scope.cpp',
     include_directories: nixl_inc_dirs,
     dependencies: tomlplusplus_dep,

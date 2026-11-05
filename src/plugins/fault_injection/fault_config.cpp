@@ -21,7 +21,6 @@
 
 #include <toml++/toml.hpp>
 
-#include <algorithm>
 #include <fstream>
 #include <initializer_list>
 #include <iterator>
@@ -33,6 +32,13 @@
 #include <vector>
 
 namespace nixl::fault {
+
+bool
+carriesOperation(backend_method_t method) {
+    return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
+        method == backend_method_t::ESTIMATE_XFER_COST;
+}
+
 namespace {
 
     constexpr std::pair<std::string_view, backend_method_t> methods[] = {
@@ -91,13 +97,6 @@ namespace {
         }
     }
 
-    // Opaque request handles expose no transfer operation; these methods take one directly.
-    bool
-    carriesOperation(backend_method_t method) {
-        return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
-            method == backend_method_t::ESTIMATE_XFER_COST;
-    }
-
     faultRule
     parseRule(const tableScope &fields) {
         fields.rejectUnknownKeysAndThrow(
@@ -116,12 +115,34 @@ namespace {
         return rule;
     }
 
-    // Two rules can match the same call when they name the same method and occurrence and
-    // their operations intersect. An omitted operation covers both transfer directions.
-    bool
-    overlaps(const faultRule &left, const faultRule &right) {
-        return left.method == right.method && left.injectOnOccurrence == right.injectOnOccurrence &&
-            (!left.operation || !right.operation || *left.operation == *right.operation);
+    // Two rules collide when they can count the same call. Equal selectors always do. A
+    // rule that omits the operation counts both directions, so its occurrence can land on
+    // a directional rule's earlier one even though the two numbers differ. Returns why,
+    // or an empty string when the rules are independent.
+    std::string
+    overlapReason(const faultRule &rule, const faultRule &earlier) {
+        if (rule.method != earlier.method) {
+            return {};
+        }
+        if (rule.operation == earlier.operation) {
+            if (rule.injectOnOccurrence != earlier.injectOnOccurrence) {
+                return {};
+            }
+            return "same method, operation and occurrence";
+        }
+        if (rule.operation && earlier.operation) {
+            // Two different directions never count the same call.
+            return {};
+        }
+        // Exactly one of the two omits the operation.
+        const faultRule &wildcard = rule.operation ? earlier : rule;
+        const faultRule &directional = rule.operation ? rule : earlier;
+        if (wildcard.injectOnOccurrence < directional.injectOnOccurrence) {
+            return {};
+        }
+        return "the rule without an operation counts both directions, so its occurrence " +
+            std::to_string(wildcard.injectOnOccurrence) + " can be occurrence " +
+            std::to_string(directional.injectOnOccurrence) + " of the directional rule";
     }
 
     std::vector<faultRule>
@@ -142,13 +163,12 @@ namespace {
             if (!identifiers.insert(rule.id).second) {
                 section.rejectAndThrow(element + ".id", "duplicate rule ID '" + rule.id + "'");
             }
-            const auto conflict =
-                std::find_if(rules.begin(), rules.end(), [&rule](const faultRule &earlier) {
-                    return overlaps(rule, earlier);
-                });
-            if (conflict != rules.end()) {
-                section.rejectAndThrow(
-                    element, "overlaps rule '" + conflict->id + "': same method and occurrence");
+            for (const auto &earlier : rules) {
+                const auto reason = overlapReason(rule, earlier);
+                if (!reason.empty()) {
+                    section.rejectAndThrow(element,
+                                           "overlaps rule '" + earlier.id + "': " + reason);
+                }
             }
             rules.push_back(std::move(rule));
         }
