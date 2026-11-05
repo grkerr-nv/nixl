@@ -50,14 +50,7 @@ shouldDeepBind(const std::filesystem::path &real_plugin_path) {
     }
 }
 
-// What the inert proxy uses from the configuration: where the genuine plugin lives, and
-// the experiment the run log must name.
-struct proxyConfig {
-    std::filesystem::path realPluginPath;
-    std::string experimentId;
-};
-
-proxyConfig
+nixl::fault::faultConfig
 readConfig() {
     // Read through the config facade, as the deepbind policy does, so a NIXL configuration
     // file can supply this too. An empty setting is a mistake, not an unset one.
@@ -66,19 +59,16 @@ readConfig() {
         throw std::invalid_argument(
             "NIXL_FAULT_CONFIG_FILE must specify real_plugin_path configuration");
     }
-    const auto config = nixl::fault::faultConfig::load(*file);
-    if (!config.getRules().empty()) {
-        throw std::invalid_argument("Fault injection rules are not supported by the inert proxy");
-    }
-    return {config.getRealPluginPath(), config.getExperimentId()};
+    return nixl::fault::faultConfig::load(*file);
 }
 
 struct proxyState {
-    explicit proxyState(proxyConfig config)
-        : experimentId(std::move(config.experimentId)),
-          loader(config.realPluginPath, shouldDeepBind(config.realPluginPath)) {}
+    explicit proxyState(nixl::fault::faultConfig config)
+        : runtime(std::make_shared<nixl::fault::faultRuntime>(std::move(config))),
+          loader(runtime->getConfig().getRealPluginPath(),
+                 shouldDeepBind(runtime->getConfig().getRealPluginPath())) {}
 
-    std::string experimentId;
+    std::shared_ptr<nixl::fault::faultRuntime> runtime;
     nixl::fault::pluginLoader loader;
 };
 
@@ -164,7 +154,10 @@ createEngine(const nixlBackendInitParams *params) {
                                         owner->loader.getName() + "'");
         }
         // Move the unique owner with its genuine plugin deleter and lifetime.
-        return new nixl::fault::forwardingEngine(params, owner->loader.createEngine(params));
+        // Empty configurations keep the forwarding path free of evaluator calls.
+        auto runtime = owner->runtime->getConfig().getRules().empty() ? nullptr : owner->runtime;
+        return new nixl::fault::forwardingEngine(
+            params, owner->loader.createEngine(params), std::move(runtime));
     });
 }
 
@@ -207,8 +200,7 @@ nixl_plugin_init() {
             plugin_name.store(name.c_str(), std::memory_order_release);
             plugin_version.store(version.c_str(), std::memory_order_release);
             state = new std::shared_ptr<proxyState>(std::move(created));
-            NIXL_INFO << "Fault proxy initialized for " << name << " as experiment '"
-                      << (*state)->experimentId << "'; injection disabled";
+            (*state)->runtime->logConfiguration();
         }
         ++initializations;
         return &plugin;

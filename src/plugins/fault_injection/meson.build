@@ -28,10 +28,11 @@ nixl_plugin_loader_dep = declare_dependency(
 
 fault_config_lib = static_library('nixl_fault_config',
     'fault_config.cpp',
+    'fault_runtime.cpp',
     'rule_evaluator.cpp',
     'table_scope.cpp',
-    include_directories: nixl_inc_dirs,
-    dependencies: tomlplusplus_dep,
+    include_directories: [nixl_inc_dirs, utils_inc_dirs],
+    dependencies: [tomlplusplus_dep, thread_dep, nixl_common_dep, absl_crc32c_dep],
     build_by_default: get_option('build_fault_injection'),
     gnu_symbol_visibility: 'hidden',
     pic: true)
@@ -41,11 +42,12 @@ fault_config_lib = static_library('nixl_fault_config',
 nixl_fault_config_dep = declare_dependency(
     link_with: fault_config_lib,
     include_directories: [nixl_inc_dirs, include_directories('.')],
-    dependencies: tomlplusplus_dep)
+    dependencies: [tomlplusplus_dep, thread_dep, nixl_common_dep, absl_crc32c_dep])
 
 # Fail the build, not a test run, when the proxy stops forwarding a backend virtual.
 forwarding_interface_check = custom_target('check_forwarding_engine_interface',
-    input: ['../../api/cpp/backend/backend_engine.h', 'forwarding_engine.h'],
+    input: ['../../api/cpp/backend/backend_engine.h', 'forwarding_engine.h',
+            'fault_config.cpp'],
     output: 'forwarding_engine_interface.txt',
     command: [find_program('python3'), files('check_forwarding_interface.py'), '@INPUT@'],
     capture: true)

@@ -61,6 +61,30 @@ enum class backend_method_t {
 [[nodiscard]] bool
 carriesOperation(backend_method_t method);
 
+/** Whether this status reports a failure rather than a result. */
+[[nodiscard]] bool
+isErrorStatus(nixl_status_t status);
+
+/** Whether a successful call must write an output argument the caller then reads.
+ *
+ * Injection substitutes a status for a call that never ran, so a non-error status here leaves
+ * core reading an argument nothing filled in. The crash that follows belongs to the harness
+ * rather than the system under test, so these methods take error statuses only. The rest keep
+ * the whole vocabulary, getNotifs included: core clears its list before each call, so a call
+ * that writes nothing truthfully reports no notifications.
+ */
+[[nodiscard]] bool
+writesOutputOnSuccess(backend_method_t method);
+
+[[nodiscard]] std::string_view
+methodName(backend_method_t method);
+
+[[nodiscard]] std::string_view
+statusName(nixl_status_t status);
+
+[[nodiscard]] std::string_view
+operationName(nixl_xfer_op_t operation);
+
 /** A validated rule definition. Occurrence counters belong to the runtime evaluator.
  *
  * Rules within one configuration never overlap, so at most one rule fires on any call and
@@ -108,6 +132,12 @@ public:
         return experimentId_;
     }
 
+    /** Stable CRC32C checksum of the original TOML bytes, for run correlation. */
+    [[nodiscard]] const std::string &
+    getDigest() const {
+        return digest_;
+    }
+
     [[nodiscard]] const std::filesystem::path &
     getRealPluginPath() const {
         return realPluginPath_;
@@ -122,6 +152,8 @@ private:
     faultConfig() = default;
 
     std::string experimentId_;
+    // CRC32C checksum of the TOML bytes, used to correlate configuration and injection logs.
+    std::string digest_;
     std::filesystem::path realPluginPath_;
     std::vector<faultRule> rules_;
 };

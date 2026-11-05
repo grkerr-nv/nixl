@@ -206,6 +206,42 @@ TEST_F(proxyPluginTest, PreservesIdentityAndForwardsTransferWithOriginalHandles)
                                             fixture_event_t::FINALIZE}));
 }
 
+TEST_F(proxyPluginTest, SharesInjectionCountsAcrossEnginesAndFinalization) {
+    writeConfig(
+        "[fault_injection]\nschema_version = 1\nexperiment_id = 'shared-engines'\n"
+        "real_plugin_path = '" +
+        std::string(LOADER_FIXTURE_PATH) +
+        "'\n[[fault_injection.rules]]\nid = 'second-write'\nmethod = 'postXfer'\n"
+        "operation = 'NIXL_WRITE'\ninject_on_occurrence = 2\nstatus = 'NIXL_ERR_BACKEND'\n");
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    using engine_owner_t = std::unique_ptr<nixlBackendEngine, void (*)(nixlBackendEngine *)>;
+    engine_owner_t first(plugin->create_engine(&params_), plugin->destroy_engine);
+    ASSERT_NE(first, nullptr);
+    auto *first_genuine = genuine_;
+    engine_owner_t second(plugin->create_engine(&params_), plugin->destroy_engine);
+    ASSERT_NE(second, nullptr);
+    EXPECT_CALL(*first_genuine, postXfer(NIXL_READ, _, _, _, _, nullptr))
+        .WillOnce(Return(NIXL_SUCCESS));
+    EXPECT_CALL(*first_genuine, postXfer(NIXL_WRITE, _, _, _, _, nullptr))
+        .WillOnce(Return(NIXL_IN_PROG))
+        .WillOnce(Return(NIXL_SUCCESS));
+    EXPECT_CALL(*genuine_, postXfer(_, _, _, _, _, _)).Times(0);
+    nixl_meta_dlist_t local(DRAM_SEG), remote(DRAM_SEG);
+    nixlBackendReqH request;
+    nixlBackendReqH *handle = &request;
+    finalize();
+    // Both engines keep the same runtime alive after plugin callback state is cleared.
+    EXPECT_EQ(first->postXfer(NIXL_READ, local, remote, "peer", handle), NIXL_SUCCESS);
+    EXPECT_EQ(first->postXfer(NIXL_WRITE, local, remote, "peer", handle), NIXL_IN_PROG);
+    EXPECT_EQ(second->postXfer(NIXL_WRITE, local, remote, "peer", handle), NIXL_ERR_BACKEND);
+    EXPECT_EQ(handle, &request);
+    EXPECT_EQ(first->postXfer(NIXL_WRITE, local, remote, "peer", handle), NIXL_SUCCESS);
+    first.reset();
+    second.reset();
+    EXPECT_EQ(events_.back(), fixture_event_t::FINALIZE);
+}
+
 TEST_F(proxyPluginTest, KeepsIdentityReadableAfterFinalization) {
     auto *plugin = initialize();
     ASSERT_NE(plugin, nullptr);
@@ -264,7 +300,7 @@ TEST_F(proxyPluginTest, BalancesRepeatedInitializationAndReadsConfigurationOnce)
     EXPECT_EQ(initialize(), nullptr);
 }
 
-TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
+TEST_F(proxyPluginTest, RejectsMissingAndInvalidConfiguration) {
     env_.unsetVar("NIXL_FAULT_CONFIG_FILE");
     EXPECT_EQ(initialize(), nullptr);
     env_.popVar();
@@ -273,13 +309,9 @@ TEST_F(proxyPluginTest, RejectsMissingInvalidAndUnsupportedConfiguration) {
     const std::string base = "[fault_injection]\nschema_version = 1\nexperiment_id = 'test'\n";
     // fault_config_test covers the schema vocabulary and plugin_loader_test the loader's
     // own failures. Keep one of each here to show the proxy reports them instead of
-    // throwing, plus the rule rejection, which is the proxy's own rule.
+    // throwing.
     for (const auto &contents : std::vector<std::string>{
-             "invalid TOML !",
-             base + "real_plugin_path = '/absent/plugin.so'\n",
-             base + "real_plugin_path = '" + LOADER_FIXTURE_PATH +
-                 "'\n[[fault_injection.rules]]\nid = 'first-connect'\nmethod = 'connect'\n"
-                 "inject_on_occurrence = 1\nstatus = 'NIXL_ERR_BACKEND'\n"}) {
+             "invalid TOML !", base + "real_plugin_path = '/absent/plugin.so'\n"}) {
         SCOPED_TRACE(contents);
         writeConfig(contents);
         EXPECT_EQ(initialize(), nullptr);

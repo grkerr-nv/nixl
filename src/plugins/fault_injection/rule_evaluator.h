@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -79,6 +80,13 @@ private:
     };
 
     std::vector<ruleState> rules_;
+    // Overlapping selectors must advance together to preserve one call order across rules.
+    std::vector<backend_method_t> serializedMethods_;
+    // One mutex covers every serialized method, so overlapping rules on two different
+    // methods contend without being able to claim each other's rules. If the single
+    // mutex ever becomes a performance bottleneck, use an std::array<std::mutex, N>
+    // indexed by method instead.
+    std::mutex orderingMutex_;
 };
 
 } // namespace nixl::fault

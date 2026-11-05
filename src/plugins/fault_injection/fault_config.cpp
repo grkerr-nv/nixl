@@ -19,9 +19,11 @@
 
 #include "table_scope.h"
 
+#include <absl/crc/crc32c.h>
 #include <toml++/toml.hpp>
 
 #include <fstream>
+#include <iomanip>
 #include <initializer_list>
 #include <iterator>
 #include <sstream>
@@ -37,6 +39,70 @@ bool
 carriesOperation(backend_method_t method) {
     return method == backend_method_t::PREP_XFER || method == backend_method_t::POST_XFER ||
         method == backend_method_t::ESTIMATE_XFER_COST;
+}
+
+bool
+writesOutputOnSuccess(backend_method_t method) {
+    // Classify by the method's own signature. The true arm is every method whose success
+    // contract fills a non-const reference argument that core then reads, whether that is a
+    // handle, a metadata pointer, a string, or a measurement. The false arm is the methods whose
+    // returned status is the whole answer; checkXfer is the clearest of those, and injecting
+    // NIXL_SUCCESS on it is a real fault rather than a lie, because it reports a transfer as
+    // finished.
+    //
+    // getNotifs is the deliberate exception, an output argument sitting in the false arm. Core
+    // clears the list before every call, so a call that writes nothing reports no notifications
+    // rather than stale ones, which makes an injected success a dropped-notification fault.
+    switch (method) {
+    case backend_method_t::REGISTER_MEM:
+    case backend_method_t::PREP_XFER:
+    case backend_method_t::POST_XFER:
+    case backend_method_t::PREP_MEM_VIEW:
+    case backend_method_t::GET_PUBLIC_DATA:
+    case backend_method_t::GET_CONN_INFO:
+    case backend_method_t::LOAD_REMOTE_MD:
+    case backend_method_t::LOAD_LOCAL_MD:
+    case backend_method_t::QUERY_MEM:
+    case backend_method_t::ESTIMATE_XFER_COST:
+        return true;
+    case backend_method_t::DEREGISTER_MEM:
+    case backend_method_t::CONNECT:
+    case backend_method_t::DISCONNECT:
+    case backend_method_t::UNLOAD_MD:
+    case backend_method_t::CHECK_XFER:
+    case backend_method_t::RELEASE_REQ_H:
+    case backend_method_t::LOAD_REMOTE_CONN_INFO:
+    case backend_method_t::GET_NOTIFS:
+    case backend_method_t::GEN_NOTIF:
+        return false;
+    }
+    return false;
+}
+
+bool
+isErrorStatus(nixl_status_t status) {
+    switch (status) {
+    case NIXL_SUCCESS:
+    case NIXL_IN_PROG:
+        return false;
+    case NIXL_ERR_NOT_POSTED:
+    case NIXL_ERR_INVALID_PARAM:
+    case NIXL_ERR_BACKEND:
+    case NIXL_ERR_NOT_FOUND:
+    case NIXL_ERR_MISMATCH:
+    case NIXL_ERR_NOT_ALLOWED:
+    case NIXL_ERR_REPOST_ACTIVE:
+    case NIXL_ERR_UNKNOWN:
+    case NIXL_ERR_NOT_SUPPORTED:
+    case NIXL_ERR_REMOTE_DISCONNECT:
+    case NIXL_ERR_CANCELED:
+    case NIXL_ERR_NO_TELEMETRY:
+        return true;
+    }
+    // Unreachable for the statuses a rule can name, which the table above fixes. An
+    // unclassified value counts as a non-error so it meets the output check rather than
+    // slipping past it.
+    return false;
 }
 
 namespace {
@@ -80,6 +146,7 @@ namespace {
         {"NIXL_ERR_NO_TELEMETRY", NIXL_ERR_NO_TELEMETRY},
     };
 
+
     constexpr std::pair<std::string_view, nixl_xfer_op_t> operations[] = {
         {"NIXL_READ", NIXL_READ},
         {"NIXL_WRITE", NIXL_WRITE},
@@ -105,6 +172,14 @@ namespace {
         rule.id = fields.requiredString("id");
         rule.method = fields.requiredSymbol("method", methods);
         rule.status = fields.requiredSymbol("status", statuses);
+        // Both non-error statuses promise core a result the suppressed call never produced.
+        if (!isErrorStatus(rule.status) && writesOutputOnSuccess(rule.method)) {
+            fields.rejectAndThrow("status",
+                                  std::string(statusName(rule.status)) + " would leave " +
+                                      std::string(methodName(rule.method)) +
+                                      "'s output argument unwritten, and injection cannot "
+                                      "fabricate one; this method takes error statuses only");
+        }
         rule.injectOnOccurrence = fields.positiveInteger("inject_on_occurrence");
         if (fields.contains("operation")) {
             if (!carriesOperation(rule.method)) {
@@ -200,7 +275,35 @@ namespace {
         }
     }
 
+    // These tables and the fallback reference string literals; returned views stay
+    // valid while this library remains loaded.
+    template<class T, size_t N>
+    std::string_view
+    symbolName(T symbol, const std::pair<std::string_view, T> (&symbols)[N]) {
+        for (const auto &[name, value] : symbols) {
+            if (value == symbol) {
+                return name;
+            }
+        }
+        return "unknown";
+    }
+
 } // namespace
+
+std::string_view
+methodName(backend_method_t method) {
+    return symbolName(method, methods);
+}
+
+std::string_view
+statusName(nixl_status_t status) {
+    return symbolName(status, statuses);
+}
+
+std::string_view
+operationName(nixl_xfer_op_t operation) {
+    return symbolName(operation, operations);
+}
 
 faultConfig
 faultConfig::parse(std::string_view text) {
@@ -229,6 +332,10 @@ faultConfig::parse(std::string_view text) {
         section.rejectAndThrow("real_plugin_path", "must name a file, not a directory");
     }
     config.rules_ = parseRules(section);
+    const auto digest = static_cast<uint32_t>(absl::ComputeCrc32c(text));
+    std::ostringstream fingerprint;
+    fingerprint << "crc32c:" << std::hex << std::setfill('0') << std::setw(8) << digest;
+    config.digest_ = fingerprint.str();
     return config;
 }
 
