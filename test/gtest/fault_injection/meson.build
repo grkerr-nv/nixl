@@ -36,6 +36,7 @@ loader_fixture_no_fini = shared_library('loader_fixture_no_fini',
 plugin_loader_test = executable('plugin_loader_test',
     'plugin_loader_test.cpp',
     'fault_config_test.cpp',
+    'rule_evaluator_test.cpp',
     'table_scope_test.cpp',
     link_args: ['-Wl,--wrap=dlerror'],
     cpp_args: [
@@ -43,7 +44,7 @@ plugin_loader_test = executable('plugin_loader_test',
         '-DLOADER_NO_FINI_PATH="' + loader_fixture_no_fini.full_path() + '"',
         '-DLOADER_TEST_SANITIZED=' + (get_option('sanitizer') == 'none' ? '0' : '1'),
     ],
-    dependencies: [nixl_plugin_loader_dep, nixl_fault_config_dep,
+    dependencies: [nixl_plugin_loader_dep, nixl_fault_config_dep, thread_dep,
                    dependency('gtest', version: '>=1.11.0', main: true)])
 
 test('plugin_loader', plugin_loader_test,

@@ -18,9 +18,12 @@ limitations under the License.
 # Fault configuration
 
 `fault_config.h` provides `nixl::fault::faultConfig`, an owning, validated snapshot
-of the schema-version-1 status-rule configuration.
+of the schema-version-1 status-rule configuration. `rule_evaluator.h` provides
+`nixl::fault::ruleEvaluator`, which applies those rules to backend calls.
 
 ## API
+
+### Configuration
 
 ```cpp
 #include "fault_config.h"
@@ -35,8 +38,37 @@ const auto &rules = config.getRules();
 source can change or disappear afterwards.
 
 The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
-lifetime. It uses `getRealPluginPath()` to load the genuine backend and rejects
-nonempty rules until runtime injection is implemented.
+lifetime and uses `getRealPluginPath()` to load the genuine backend.
+
+### Rule evaluator
+
+`rule_evaluator.h` provides `nixl::fault::ruleEvaluator`, which owns a copy of the
+validated rules and their runtime counters:
+
+```cpp
+nixl::fault::ruleEvaluator evaluator(config);
+const auto *rule = evaluator.evaluate(nixl::fault::backend_method_t::POST_XFER, NIXL_WRITE);
+// nullptr means forward; otherwise rule->status is the configured result to inject.
+```
+
+Pass the operation the backend call carried, or `std::nullopt` for the methods
+that take none; `carriesOperation` says which, and the two must agree. A missing
+operation matches no rule and would report a clean run instead of the configured
+fault, so the pairing is asserted rather than defaulted.
+
+Each evaluator has independent counters. Only matching methods and operations
+advance them, and all matching rules advance even when another rule fires on the
+same call. An occurrence therefore counts the calls the caller made, not the calls
+the genuine backend ran: with two rules over the same calls, the earlier rule's
+injection still advances the later rule, which can reach its occurrence before the
+backend has run that many. Concurrent calls are safe: exactly one caller takes a rule to its
+configured occurrence and receives it. Returned rule pointers remain valid until
+the evaluator is destroyed.
+
+Counters live in the evaluator, so a second evaluator over the same configuration
+restarts them. The proxy constructs one per loaded plugin and shares it with every
+backend engine; one per engine would inject each rule once per engine instead of
+once per run.
 
 ## Schema
 
@@ -63,10 +95,32 @@ checks existence and plugin validity.
 `rules` may be omitted or `[]` for an inert configuration. Each rule requires a
 unique `id`, `method`, a positive `inject_on_occurrence`, and `status`.
 
-Rules must not overlap. Two rules naming the same `method` and
-`inject_on_occurrence` are rejected when their operations intersect, so at most
-one rule matches any call and the evaluator needs no precedence order. Rules on
-distinct methods, occurrences, or transfer directions remain independent.
+Omitting `operation` makes a rule count both reads and writes. Replace the rule
+in the example above with:
+
+```toml
+[[fault_injection.rules]]
+id = "fail-second-post"
+method = "postXfer"
+inject_on_occurrence = 2
+status = "NIXL_ERR_BACKEND"
+```
+
+The evaluator selects this rule on the second `postXfer` call. For example, a read
+followed by a write selects it on the write.
+
+The parser rejects rules that could fire on the same call. Two rules on the same
+method are accepted when they name different directions, when they name the same
+direction, or both omit it, with different occurrences, or when the rule omitting
+`operation` has the lower occurrence.
+
+That last case is asymmetric. A rule without an `operation` counts both
+directions, so its occurrence can arrive at a directional rule's earlier one: a
+read then a write is occurrence 2 for an any-direction rule and occurrence 1 for
+a write-only rule. An any-direction rule at occurrence 1 beside a write-only rule
+at occurrence 2 is accepted; swap the numbers and it is rejected, in whichever
+order they are declared. The check cannot know the workload, so it also rejects
+pairs that a write-only run would never bring together.
 
 Each rule targets exactly one occurrence. Schema version 1 cannot express
 repeated, counted, or probabilistic injection, or selectors beyond `method` and
@@ -99,11 +153,16 @@ read, and prepends the path to schema and TOML errors.
 ## Scope and validation
 
 This component represents status rules only. Request-handle corruption fields
-are rejected until their schema is defined. An inert consumer must reject
-nonempty rules until it can execute them.
+are rejected until their schema is defined.
 
-Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest setup:
+An inert consumer must reject nonempty rules until it can execute them, so the
+proxy still does. Connecting this evaluator to backend calls and logging
+injections is separate work.
+
+Tests extend the existing `plugin_loader_test` target and reuse its GoogleTest
+setup. The whole target runs in milliseconds, so run it unfiltered; a suite filter
+only risks skipping the component you changed:
 
 ```bash
-meson test -C build plugin_loader --test-args='--gtest_filter=faultConfig*.*' --print-errorlogs
+meson test -C build plugin_loader --print-errorlogs
 ```
