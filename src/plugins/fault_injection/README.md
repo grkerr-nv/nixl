@@ -197,6 +197,11 @@ Overhead measurement remains separate work.
 Functional tests do not prove the design's
 statistical non-perturbation requirement.
 
+That measurement has to separate an armed run from a spent one: while two rules can
+count the same calls, every such call takes a mutex, and an unlocked check skips it
+once those rules are spent. Rules that cannot count the same call, including a lone
+rule, never reach the lock.
+
 ## Validation
 
 With NIXL dependencies and Google Test/Mock installed:
