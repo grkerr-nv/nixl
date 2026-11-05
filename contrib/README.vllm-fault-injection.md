@@ -7,8 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 
 `Dockerfile.vllm-fault-injection` extends the image from `Dockerfile.vllm`.
 It selects the fault proxy as UCX and starts with an inert configuration.
-Its entrypoint selects the installed proxy directory, then runs `vllm serve` with
-the supplied arguments. Keep the normal `NixlConnector` configuration.
+It points `NIXL_PLUGIN_DIR` at `/opt/nixl-fault/plugins`, a symlink to the
+installed proxy directory, and keeps the base image's entrypoint and arguments.
+Only `UCX` resolves inside this image; the other NIXL backends are present in the
+wheel but not discoverable. Keep the normal `NixlConnector` configuration.
 
 ## Build
 
@@ -86,8 +88,10 @@ Choose `NIXL_WRITE` if the tested connector uses writes. Check the injection log
 for the experiment, rule, method, operation, and occurrence; a successful request
 alone does not prove the rule fired. Each worker counts independently.
 Restart workers after changing the configuration. The file is read once.
-If overriding the image entrypoint, set `NIXL_PLUGIN_DIR` to the proxy's installed
-directory yourself; the generated `/usr/local/bin/nixl-fault-entrypoint` records it.
+`NIXL_PLUGIN_DIR` is set in the image, so an overridden entrypoint, a replaced
+command, and `docker exec` all still select the proxy. Setting `NIXL_PLUGIN_DIR`
+from outside overrides that selection silently, leaving the genuine backend in
+place; the initialization record is the only confirmation that the proxy loaded.
 See the [harness guide](../src/plugins/fault_injection/README.md) for rule semantics
 and limitations. This covers host-agent transfers, not NIXL-EP device transfers.
 
