@@ -46,7 +46,8 @@ nixl_fault_config_dep = declare_dependency(
 
 # Fail the build, not a test run, when the proxy stops forwarding a backend virtual.
 forwarding_interface_check = custom_target('check_forwarding_engine_interface',
-    input: ['../../api/cpp/backend/backend_engine.h', 'forwarding_engine.h'],
+    input: ['../../api/cpp/backend/backend_engine.h', 'forwarding_engine.h',
+            'fault_config.cpp'],
     output: 'forwarding_engine_interface.txt',
     command: [find_program('python3'), files('check_forwarding_interface.py'), '@INPUT@'],
     capture: true)

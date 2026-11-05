@@ -48,6 +48,17 @@ TEST(ruleEvaluatorTest, ForwardsWithoutRules) {
     EXPECT_EQ(evaluator.evaluate(backend_method_t::POST_XFER, NIXL_WRITE), nullptr);
 }
 
+// The pairing is a forwarder obligation that no configuration can break, so it is held in
+// every build: a mispaired call stops the process instead of quietly matching no directional
+// rule and leaving the run looking clean.
+TEST(ruleEvaluatorTest, MispairedCallTerminatesRatherThanMatchingNothingQuietly) {
+    ruleEvaluator evaluator(makeConfig());
+    // postXfer carries an operation, so std::nullopt is the mistake under test.
+    EXPECT_DEATH(
+        static_cast<void>(evaluator.evaluate(backend_method_t::POST_XFER, std::nullopt)),
+        "carriesOperation");
+}
+
 TEST(ruleEvaluatorTest, CountsOnlyMatchingCallsAndFiresOnce) {
     ruleEvaluator evaluator(makeConfig(R"([[fault_injection.rules]]
 id = "second-write"

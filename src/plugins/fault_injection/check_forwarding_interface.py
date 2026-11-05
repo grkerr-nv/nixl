@@ -25,7 +25,9 @@ def source(path):
     return re.sub(r"//[^\n]*|/\*.*?\*/", "", Path(path).read_text(), flags=re.S)
 
 
-backend, forwarder = map(source, sys.argv[1:])
+if len(sys.argv) != 4:
+    sys.exit("Usage: check_forwarding_interface.py BACKEND_HEADER FORWARDER CONFIG")
+backend, forwarder, config = map(source, sys.argv[1:])
 expected = Counter(re.findall(r"\bvirtual\b[^;{}()]*?\b(\w+)\s*\(", backend))
 expected.pop("nixlBackendEngine", None)  # The implicit derived destructor suffices.
 actual = Counter(re.findall(r"\b(\w+)\s*\([^;{}]*?\)[^;{}]*?\boverride\b", forwarder))
@@ -55,7 +57,39 @@ if not status_methods or status_methods != injected_methods:
         f"Injection interface mismatch: missing {dict(status_methods - injected_methods)}, "
         f"unexpected {dict(injected_methods - status_methods)}. Update status interception."
     )
+# The evaluator takes an operation only for the methods that carry one and asserts the
+# pairing, but release builds define NDEBUG and drop that assert, so check it here where
+# the build fails instead. A call site that passes std::nullopt for a transfer method
+# stops matching every directional rule, and the run still looks clean.
+carries_body = re.search(r"\bcarriesOperation\s*\([^)]*\)\s*\{(.*?)\}", config, flags=re.S)
+if carries_body is None:
+    sys.exit("Cannot find carriesOperation(); update the interface check.")
+carries = set(re.findall(r"\bbackend_method_t::(\w+)", carries_body.group(1)))
+call_sites = len(re.findall(r"\binjectedStatus\(\s*backend_method_t::", forwarder))
+injections = re.findall(
+    r"\binjectedStatus\(\s*backend_method_t::(\w+)\s*,\s*([^()]*?)\s*\)",
+    forwarder,
+    flags=re.S,
+)
+# Fail closed if a call site stops looking like the two plain arguments parsed here.
+if not carries or not call_sites or len(injections) != call_sites:
+    sys.exit("Cannot read every injection call site; update the interface check.")
+mispaired = sorted(
+    {
+        f"{method} must pass the operation"
+        if method in carries
+        else f"{method} must pass std::nullopt"
+        for method, argument in injections
+        if (argument != "std::nullopt") != (method in carries)
+    }
+)
+if mispaired:
+    sys.exit(
+        f"Operation pairing mismatch: {'; '.join(mispaired)}. The forwarder and "
+        "carriesOperation() must agree, or the evaluator stops matching directional rules."
+    )
 sys.stdout.write(
     f"All {sum(expected.values())} backend virtual methods are forwarded; "
-    f"{sum(status_methods.values())} status routes support injection.\n"
+    f"{sum(status_methods.values())} status routes support injection; "
+    f"{call_sites} call sites pair the operation correctly.\n"
 )

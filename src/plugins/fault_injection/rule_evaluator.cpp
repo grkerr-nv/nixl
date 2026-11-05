@@ -79,9 +79,11 @@ ruleEvaluator::ruleEvaluator(const faultConfig &config) {
 
 const faultRule *
 ruleEvaluator::evaluate(backend_method_t method, std::optional<nixl_xfer_op_t> operation) {
-    // A method and operation that disagree match no rule, so the call injects nothing and
-    // the run looks clean. The parser holds rule definitions to the same pairing.
-    assert(operation.has_value() == carriesOperation(method));
+    // A method and operation that disagree match no directional rule, so those rules never
+    // fire and the run still looks clean. The parser holds rule definitions to the same
+    // pairing, so only a forwarder call site can break it.
+    NIXL_ASSERT_ALWAYS(operation.has_value() == carriesOperation(method))
+        << "method=" << methodName(method) << " - the call site and carriesOperation() disagree";
     // One call decrements every counter that matches it, and grouping those decrements is what
     // this lock is for. Each decrement is atomic on its own, but two concurrent calls can
     // interleave so that one counter ranks them A then B while another ranks them B then A.
