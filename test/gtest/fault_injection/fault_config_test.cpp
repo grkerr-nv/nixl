@@ -185,7 +185,18 @@ method = "postXfer"
 inject_on_occurrence = 1
 status = "NIXL_ERR_CANCELED"
 )",
-                  "fault_injection.rules[1]: overlaps rule 'fail-first-post'");
+                  "overlaps rule 'fail-first-post': the rule without an operation counts "
+                  "both directions, so its occurrence 1 can be occurrence 1 of the "
+                  "directional rule");
+
+    expectInvalid(base + R"([[fault_injection.rules]]
+id = "same-selectors"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+)",
+                  "overlaps rule 'fail-first-post': same method, operation and occurrence");
 
     // A disjoint operation and a later occurrence stay independent.
     const auto config = faultConfig::parse(base + R"([[fault_injection.rules]]
@@ -202,6 +213,36 @@ inject_on_occurrence = 2
 status = "NIXL_ERR_CANCELED"
 )");
     EXPECT_EQ(config.getRules().size(), 3U);
+
+    // Omitting the operation is allowed ahead of a directional rule, the asymmetry the
+    // reversed pair above is rejected for.
+    const auto ordered = faultConfig::parse(std::string(config_text) + R"([[fault_injection.rules]]
+id = "any-direction-first"
+method = "postXfer"
+inject_on_occurrence = 1
+status = "NIXL_ERR_CANCELED"
+[[fault_injection.rules]]
+id = "second-write"
+method = "postXfer"
+operation = "NIXL_WRITE"
+inject_on_occurrence = 2
+status = "NIXL_ERR_BACKEND"
+)");
+    EXPECT_EQ(ordered.getRules().size(), 2U);
+}
+
+TEST(faultConfigTest, RejectsWildcardCollisionsAcrossDifferentOccurrences) {
+    const std::string wildcard = R"([[fault_injection.rules]]
+id = "any-direction"
+method = "postXfer"
+inject_on_occurrence = 2
+status = "NIXL_ERR_CANCELED"
+)";
+    // A read followed by a write hits wildcard occurrence 2 and write occurrence 1.
+    expectInvalid(std::string(config_text) + std::string(rule_text) + wildcard,
+                  "fault_injection.rules[1]: overlaps rule");
+    expectInvalid(std::string(config_text) + wildcard + std::string(rule_text),
+                  "fault_injection.rules[1]: overlaps rule");
 }
 
 TEST(faultConfigTest, AllowsOperationOnlyOnMethodsWithAnOperationArgument) {
