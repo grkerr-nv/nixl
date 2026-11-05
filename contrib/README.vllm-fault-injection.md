@@ -116,6 +116,32 @@ rather than counting calls. `event=nixl_fault_double_claim` is a warning that on
 call matched two rules and only one status was returned, which means the run is
 not measuring what the configuration describes.
 
+The image also mirrors these records to a file. `NIXL_LOG_FILE` is set to
+`/var/log/nixl/nixl-fault-%h-%p.log`, where `%h` is the container's hostname and
+`%p` the process id, so each of vLLM's processes — the API server and one worker
+per GPU, each with its own proxy — writes its own file. Mirroring does not
+redirect: the same records still reach `docker logs`. To keep the files after the
+container exits, create a host directory — `--mount type=bind` fails rather than
+creating a missing source — and make it writable by the container's user, since
+the mount hides the image's own permissions on that path:
+
+```bash
+mkdir -p nixl-logs
+```
+
+Then add this to each endpoint's `docker run`:
+
+```bash
+--mount type=bind,src="$PWD/nixl-logs",dst=/var/log/nixl
+```
+
+`NIXL_LOG_FILE_SIZE` is `64M` in the image; the sink rotates once, to a `.log.1`
+file beside it, and rejects a limit below 16 KiB. A path that cannot be opened is
+reported once and the process then runs without a file, so set
+`NIXL_LOG_FILE_ERROR_IS_FATAL=1` when these records are the experiment's evidence
+rather than a convenience. `%t`, a per-process start marker in nanoseconds, and
+`%%` are also accepted; any other escape is rejected at startup.
+
 If restricting `UCX_TLS` on a GPU host, include CUDA support, for example
 `tcp,self,cuda_copy`. NIXL validates this even when vLLM uses CPU-staged KV buffers.
 

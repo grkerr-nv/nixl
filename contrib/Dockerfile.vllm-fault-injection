@@ -39,6 +39,11 @@ selector.symlink_to(proxy.name)
 selected = root / "plugins"
 selected.unlink(missing_ok=True)
 selected.symlink_to(proxy.parent)
+# A writable home for NIXL_LOG_FILE. 1777 so the image still logs when run with
+# --user; mount a host directory here to keep the files after the container exits.
+logs = Path("/var/log/nixl")
+logs.mkdir(parents=True, exist_ok=True)
+logs.chmod(0o1777)
 (root / "inert.toml").write_text(
     "[fault_injection]\n"
     "schema_version = 1\n"
@@ -61,4 +66,6 @@ RUN test -f /opt/nixl-fault/inert.toml \
 # image's own entrypoint and arguments are left alone.
 ENV NIXL_PLUGIN_DIR=/opt/nixl-fault/plugins \
     NIXL_FAULT_CONFIG_FILE=/opt/nixl-fault/inert.toml \
-    NIXL_LOG_LEVEL=INFO
+    NIXL_LOG_LEVEL=INFO \
+    NIXL_LOG_FILE=/var/log/nixl/nixl-fault-%h-%p.log \
+    NIXL_LOG_FILE_SIZE=64M
