@@ -48,6 +48,14 @@ selected.symlink_to(proxy.parent)
 )
 PY
 
+# The heredoc above is a BuildKit feature. The legacy builder does not fail on
+# it: it runs the RUN line with an empty here-document, silently skips the body,
+# and succeeds, leaving NIXL_PLUGIN_DIR below pointing at a directory that was
+# never created. Fail at build time rather than at container start.
+RUN test -f /opt/nixl-fault/inert.toml \
+    && test -e /opt/nixl-fault/plugins/libplugin_UCX.so \
+    || { echo "FATAL: the setup step did not run. Build with BuildKit (DOCKER_BUILDKIT=1)." >&2; exit 1; }
+
 # Set in the image, not in an entrypoint wrapper, so every process gets the proxy:
 # an overridden entrypoint, a replaced command, and docker exec alike. The base
 # image's own entrypoint and arguments are left alone.

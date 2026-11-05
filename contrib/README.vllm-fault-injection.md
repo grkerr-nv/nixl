@@ -47,6 +47,13 @@ docker build -f contrib/Dockerfile.vllm-fault-injection \
 Pin the vLLM version for an experiment. Override `BASE_IMAGE` on the second build
 if the first image uses a different tag.
 
+Build with BuildKit, the default on Docker 23 and newer. The second Dockerfile
+uses a heredoc, which the legacy builder (`DOCKER_BUILDKIT=0`, and older
+podman/buildah) skips without reporting anything: the image builds green and has no plugins at
+run time. The Dockerfile checks for this and fails the build rather than let it
+through, so a `FATAL: the setup step did not run` message means the builder, not
+the wheels.
+
 ## Run
 
 First run the existing prefill/decode deployment with `nixl-vllm:latest` to check
