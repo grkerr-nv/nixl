@@ -34,8 +34,9 @@ const auto &rules = config.getRules();
 `parse` takes TOML text instead of a path. Both copy what they need, so the
 source can change or disappear afterwards.
 
-The eventual proxy selects the file through `NIXL_FAULT_CONFIG_FILE` and retains
-one snapshot during initialization.
+The proxy loads the file through `NIXL_FAULT_CONFIG_FILE` once per initialized
+lifetime. It uses `getRealPluginPath()` to load the genuine backend and rejects
+nonempty rules until runtime injection is implemented.
 
 ## Schema
 

@@ -61,7 +61,11 @@ create(const nixlBackendInitParams *params) {
     if (mode == fixture_mode_t::THROW_CREATE) {
         throw std::runtime_error("fixture create failed");
     }
-    return new testing::NiceMock<fixtureEngine>(params);
+    auto *engine = new testing::NiceMock<fixtureEngine>(params);
+    if (observer.engineCreated) {
+        observer.engineCreated(observer.context, engine);
+    }
+    return engine;
 }
 
 void
@@ -81,6 +85,9 @@ name() {
     if (mode == fixture_mode_t::NULL_NAME) {
         return nullptr;
     }
+    if (mode == fixture_mode_t::DIFFERENT_NAME) {
+        return "OTHER_FIXTURE";
+    }
     return mode == fixture_mode_t::EMPTY_NAME ? "" : "LOADER_FIXTURE";
 }
 
@@ -89,16 +96,25 @@ version() {
     if (mode == fixture_mode_t::NULL_VERSION) {
         return nullptr;
     }
+    if (mode == fixture_mode_t::DIFFERENT_VERSION) {
+        return "2.0.0";
+    }
     return mode == fixture_mode_t::EMPTY_VERSION ? "" : "1.2.3";
 }
 
 nixl_b_params_t
 options() {
+    if (mode == fixture_mode_t::THROW_OPTIONAL) {
+        throw std::runtime_error("fixture options failed");
+    }
     return {{"transport", "fixture"}};
 }
 
 nixl_mem_list_t
 mems() {
+    if (mode == fixture_mode_t::THROW_OPTIONAL) {
+        throw std::runtime_error("fixture mems failed");
+    }
     return {DRAM_SEG, VRAM_SEG};
 }
 
@@ -165,10 +181,13 @@ nixl_plugin_init() {
     case fixture_mode_t::EMPTY_NAME:
     case fixture_mode_t::NULL_VERSION:
     case fixture_mode_t::EMPTY_VERSION:
+    case fixture_mode_t::DIFFERENT_NAME:
+    case fixture_mode_t::DIFFERENT_VERSION:
     case fixture_mode_t::NULL_ENGINE:
     case fixture_mode_t::THROW_CREATE:
     case fixture_mode_t::THROW_CLEANUP:
     case fixture_mode_t::THROW_UNKNOWN_CLEANUP:
+    case fixture_mode_t::THROW_OPTIONAL:
     case fixture_mode_t::ENGINE_INIT_ERROR:
         break;
     }

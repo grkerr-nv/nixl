@@ -22,6 +22,8 @@
 
 #include "backend/backend_aux.h"
 
+class nixlBackendEngine;
+
 namespace loader_fixture {
 
 enum class fixture_mode_t {
@@ -37,9 +39,12 @@ enum class fixture_mode_t {
     EMPTY_NAME,
     NULL_VERSION,
     EMPTY_VERSION,
+    DIFFERENT_NAME,
+    DIFFERENT_VERSION,
     NO_OPTIONS,
     NO_MEMS,
     NO_OPTIONAL,
+    THROW_OPTIONAL,
     NULL_ENGINE,
     THROW_CREATE,
     THROW_CLEANUP,
@@ -52,6 +57,7 @@ enum class fixture_event_t { INIT, CREATE, DESTROY_CALLBACK, ENGINE_DESTROYED, F
 struct observer {
     void *context = nullptr; // Pass test state to the callback without exposing its type.
     void (*record)(void *, fixture_event_t, const nixlBackendInitParams *) = nullptr;
+    void (*engineCreated)(void *, nixlBackendEngine *) = nullptr;
 };
 
 using configure_function_t = void(fixture_mode_t, observer);
