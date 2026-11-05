@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build this base with contrib/Dockerfile.vllm and fault-injection-enabled wheels.
+ARG BASE_IMAGE=nixl-vllm:latest
+FROM ${BASE_IMAGE}
+
+# Keep libraries in the wheel so their relative dependency paths remain valid.
+RUN python3 - <<'PY'
+import ctypes
+from pathlib import Path
+
+from nixl import _api
+
+plugin_dir = (
+    Path(_api.__file__).resolve().parent.parent
+    / f".{_api.__package__}.mesonpy.libs"
+    / "plugins"
+)
+proxy = plugin_dir / "fault_injection/libnixl_fault_proxy.so"
+genuine = plugin_dir / "libplugin_UCX.so"
+for library in (proxy, genuine):
+    if not library.is_file():
+        raise RuntimeError(
+            f"Missing {library}; rebuild the NIXL wheel with "
+            "-Dbuild_fault_injection=true -Denable_plugins=UCX"
+        )
+    ctypes.CDLL(str(library))
+
+root = Path("/opt/nixl-fault")
+root.mkdir(parents=True, exist_ok=True)
+# Keep $ORIGIN relative to the original plugin directory, including repaired wheels.
+selector = proxy.with_name("libplugin_UCX.so")
+selector.unlink(missing_ok=True)
+selector.symlink_to(proxy.name)
+# One stable NIXL_PLUGIN_DIR, whichever CUDA variant names the wheel's library
+# directory. A directory symlink keeps the proxy's $ORIGIN-relative dependencies
+# resolvable, because ".." resolves against the link target.
+selected = root / "plugins"
+selected.unlink(missing_ok=True)
+selected.symlink_to(proxy.parent)
+# A writable home for NIXL_LOG_FILE. 1777 so the image still logs when run with
+# --user; mount a host directory here to keep the files after the container exits.
+logs = Path("/var/log/nixl")
+logs.mkdir(parents=True, exist_ok=True)
+logs.chmod(0o1777)
+(root / "inert.toml").write_text(
+    "[fault_injection]\n"
+    "schema_version = 1\n"
+    'experiment_id = "inert-vllm-ucx"\n'
+    f'real_plugin_path = "{genuine}"\n'
+    "rules = []\n"
+)
+PY
+
+# The heredoc above is a BuildKit feature. The legacy builder does not fail on
+# it: it runs the RUN line with an empty here-document, silently skips the body,
+# and succeeds, leaving NIXL_PLUGIN_DIR below pointing at a directory that was
+# never created. Fail at build time rather than at container start.
+RUN test -f /opt/nixl-fault/inert.toml \
+    && test -e /opt/nixl-fault/plugins/libplugin_UCX.so \
+    || { echo "FATAL: the setup step did not run. Build with BuildKit (DOCKER_BUILDKIT=1)." >&2; exit 1; }
+
+# Set in the image, not in an entrypoint wrapper, so every process gets the proxy:
+# an overridden entrypoint, a replaced command, and docker exec alike. The base
+# image's own entrypoint and arguments are left alone.
+ENV NIXL_PLUGIN_DIR=/opt/nixl-fault/plugins \
+    NIXL_FAULT_CONFIG_FILE=/opt/nixl-fault/inert.toml \
+    NIXL_LOG_LEVEL=INFO \
+    NIXL_LOG_FILE=/var/log/nixl/nixl-fault-%h-%p.log \
+    NIXL_LOG_FILE_SIZE=64M
