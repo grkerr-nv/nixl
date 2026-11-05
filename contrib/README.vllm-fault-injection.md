@@ -103,10 +103,14 @@ It copies nothing, and passing `.` instead would upload the whole repository —
 
 Build with BuildKit, the default on Docker 23 and newer. The second Dockerfile
 uses a heredoc, which the legacy builder (`DOCKER_BUILDKIT=0`, and older
-podman/buildah) skips without reporting anything: the image builds green and has no plugins at
-run time. The Dockerfile checks for this and fails the build rather than let it
-through, so a `FATAL: the setup step did not run` message means the builder, not
-the wheels.
+podman/buildah) skips without reporting anything: the image builds green and has
+no plugins at run time. The Dockerfile checks for this and fails the build rather
+than let it through, so a `FATAL: the setup step did not run` message means the
+builder, not the wheels.
+
+The build creates `/var/log/nixl` mode 1777 so the records below still land when
+the container runs with `--user` or under a runtime that assigns a uid. That is a
+harness trade, not a pattern for an image that serves traffic.
 
 ## Run
 
