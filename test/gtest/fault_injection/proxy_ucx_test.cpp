@@ -16,8 +16,8 @@
  */
 
 // Exercises normal plugin discovery and inert proxy forwarding to real UCX with a
-// 4 KiB DRAM transfer between two agents in one process. Checks data and cleanup;
-// does not test fault injection, multi-node behavior, or proxy overhead.
+// 4 KiB DRAM transfer between two agents in one process, with and without a one-shot
+// postXfer failure. Checks data and cleanup, not multi-node behavior or proxy overhead.
 
 #include "nixl.h"
 #include "../common.h"
@@ -35,7 +35,7 @@
 namespace {
 
 // Dedicated test process: configuration and plugin discovery are process-wide.
-class proxyUcxTest : public testing::Test {
+class proxyUcxTest : public testing::TestWithParam<bool> {
 protected:
     void
     SetUp() override {
@@ -49,6 +49,11 @@ protected:
         ASSERT_TRUE(file);
         file << "[fault_injection]\nschema_version = 1\nexperiment_id = 'ucx-smoke'\n"
              << "real_plugin_path = '" << REAL_UCX_PLUGIN_PATH << "'\n";
+        if (GetParam()) {
+            file << "[[fault_injection.rules]]\nid = 'first-write'\nmethod = 'postXfer'\n"
+                    "operation = 'NIXL_WRITE'\ninject_on_occurrence = 1\n"
+                    "status = 'NIXL_ERR_BACKEND'\n";
+        }
         env_.addVar("NIXL_FAULT_CONFIG_FILE", config.string());
         env_.addVar("NIXL_PLUGIN_DIR", directory_.string());
     }
@@ -66,7 +71,7 @@ private:
     gtest::ScopedEnv env_;
 };
 
-TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
+TEST_P(proxyUcxTest, TransfersDramBetweenAgents) {
     std::vector<char> source(4096, 'x'), destination(source.size(), 0);
     nixlAgentConfig config;
     config.useProgThread = true;
@@ -92,6 +97,13 @@ TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
     remote.addDesc(nixlBasicDesc(destination_address, destination.size(), 0));
     nixlXferReqH *request = nullptr;
     ASSERT_EQ(sender.createXferReq(NIXL_WRITE, local, remote, peer, request), NIXL_SUCCESS);
+    if (GetParam()) {
+        ASSERT_EQ(sender.postXferReq(request), NIXL_ERR_BACKEND);
+        EXPECT_EQ(destination, std::vector<char>(source.size(), 0));
+        ASSERT_EQ(sender.releaseXferReq(request), NIXL_SUCCESS);
+        request = nullptr;
+        ASSERT_EQ(sender.createXferReq(NIXL_WRITE, local, remote, peer, request), NIXL_SUCCESS);
+    }
     auto status = sender.postXferReq(request);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (status == NIXL_IN_PROG && std::chrono::steady_clock::now() < deadline) {
@@ -107,5 +119,15 @@ TEST_F(proxyUcxTest, TransfersDramBetweenAgents) {
     EXPECT_EQ(sender.deregisterMem(source_regs), NIXL_SUCCESS);
     EXPECT_EQ(receiver.deregisterMem(destination_regs), NIXL_SUCCESS);
 }
+
+// Named rather than left as /0 and /1, which are positions in the list above. A mode added
+// or reordered there would otherwise silently move, and the filtered test that named an index
+// would go on passing while exercising the other mode.
+INSTANTIATE_TEST_SUITE_P(proxyModes,
+                         proxyUcxTest,
+                         testing::Bool(),
+                         [](const testing::TestParamInfo<bool> &mode) -> std::string {
+                             return mode.param ? "Injecting" : "Forwarding";
+                         });
 
 } // namespace

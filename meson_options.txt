@@ -46,7 +46,7 @@ option('with_trace', type: 'boolean', value: true, description: 'Build the nixl:
 option('trace_backends', type: 'string', value: 'nvtx', description: 'Comma-separated tracing backends to compile in (e.g. nvtx, chakra)')
 
 # Fault injection (nixl::fault)
-option('build_fault_injection', type: 'boolean', value: false, description: 'Build fault-injection backend support, including the installed inert proxy plugin')
+option('build_fault_injection', type: 'boolean', value: false, description: 'Build fault-injection backend support, including the installed proxy plugin')
 
 # Tests
 option('build_tests', type: 'boolean', value: true, description: 'Build all tests')
