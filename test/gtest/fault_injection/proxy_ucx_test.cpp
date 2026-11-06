@@ -30,6 +30,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -39,6 +40,15 @@ class proxyUcxTest : public testing::TestWithParam<bool> {
 protected:
     void
     SetUp() override {
+        // One mode per process: the plugin manager caches the first configuration it
+        // loads, so a second mode here would silently reuse it and look like injection
+        // just did not fire. meson registers each mode as its own test; running this
+        // binary directly does not, so say so instead of failing an unrelated assertion.
+        static bool configured = false;
+        if (std::exchange(configured, true)) {
+            GTEST_SKIP() << "run one mode per process: --gtest_filter='*/Forwarding' "
+                            "or --gtest_filter='*/Injecting'";
+        }
         auto pattern = (std::filesystem::temp_directory_path() / "nixl-proxy-ucx-XXXXXX").string();
         const char *created = mkdtemp(pattern.data());
         ASSERT_NE(created, nullptr);
