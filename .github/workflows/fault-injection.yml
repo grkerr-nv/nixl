@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Fault Injection Tests
+
+on:
+  pull_request:
+    branches: [nixl-resiliency]
+  push:
+    branches: [nixl-resiliency]
+
+permissions:
+  contents: read
+
+jobs:
+  fault-injection:
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    timeout-minutes: 45
+    env:
+      UCX_TLS: tcp,self
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            autoconf automake build-essential ca-certificates cmake git libtool \
+            libasio-dev libgmock-dev libgtest-dev liburing-dev meson ninja-build \
+            pkg-config pybind11-dev python3-dev python3-setuptools python3-wheel
+      - name: Check out UCX
+        uses: actions/checkout@v4
+        with:
+          repository: openucx/ucx
+          # Match the v1.23.x line used by the existing CI build, pinned for reproducibility.
+          ref: 9b5f5a6eab55a7ddcee612d13a0ab1c6f25863e8
+          path: ucx-source
+      - name: Build CPU-only UCX
+        working-directory: ucx-source
+        run: |
+          ./autogen.sh
+          ./configure --prefix=/opt/ucx --enable-mt --without-cuda --without-rocm \
+            --without-verbs --without-java --disable-numa
+          make -j2
+          make install
+      - name: Configure debugoptimized build
+        run: |
+          # GCC 13 reports a known false positive in Abseil's optimized Cord implementation.
+          meson setup build --buildtype=debugoptimized \
+            -Dbuild_fault_injection=true -Dbuild_tests=true \
+            -Denable_plugins=UCX -Dstatic_plugins= -Ducx_path=/opt/ucx \
+            -Dabseil-cpp:werror=false \
+            -Dbuild_examples=false -Dbuild_docs=false
+      - name: Verify required tests are registered
+        shell: bash
+        run: |
+          meson introspect build --tests > build/registered-tests.json
+          python3 - <<'PY'
+          import json
+
+          with open("build/registered-tests.json") as file:
+              tests = json.load(file)
+          required = {
+              "forwarding_engine", "plugin_loader", "proxy_plugin", "proxy_discovery",
+              "proxy_ucx", "proxy_ucx_injection",
+          }
+          registered = {
+              test["name"] for test in tests if "nixl:resiliency" in test["suite"]
+          }
+          missing = required - registered
+          assert not missing, f"Missing resiliency tests: {sorted(missing)}"
+          PY
+      - name: Build and run resiliency suite
+        run: |
+          meson compile -C build -j2 forwarding_engine_test plugin_loader_test \
+            proxy_plugin_test proxy_ucx_test loader_fixture loader_fixture_no_fini \
+            nixl_fault_proxy UCX
+          meson test -C build --no-rebuild --suite resiliency --num-processes 2 --print-errorlogs
+      - name: Upload configure and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fault-injection-logs
+          path: |
+            build/meson-logs/
+            build/registered-tests.json
+          if-no-files-found: ignore
