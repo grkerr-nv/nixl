@@ -39,7 +39,7 @@ jobs:
         working-directory: ucx-source
         run: |
           ./autogen.sh
-          ./configure --prefix=/opt/ucx --without-cuda --without-rocm \
+          ./configure --prefix=/opt/ucx --enable-mt --without-cuda --without-rocm \
             --without-verbs --without-java --disable-numa
           make -j2
           make install
