@@ -45,9 +45,11 @@ jobs:
           make install
       - name: Configure debugoptimized build
         run: |
+          # GCC 13 reports a known false positive in Abseil's optimized Cord implementation.
           meson setup build --buildtype=debugoptimized \
             -Dbuild_fault_injection=true -Dbuild_tests=true \
             -Denable_plugins=UCX -Dstatic_plugins= -Ducx_path=/opt/ucx \
+            -Dabseil-cpp:werror=false \
             -Dbuild_examples=false -Dbuild_docs=false
       - name: Verify required tests are registered
         shell: bash
@@ -70,7 +72,9 @@ jobs:
           PY
       - name: Build and run resiliency suite
         run: |
-          meson compile -C build -j2
+          meson compile -C build -j2 forwarding_engine_test plugin_loader_test \
+            proxy_plugin_test proxy_ucx_test loader_fixture loader_fixture_no_fini \
+            nixl_fault_proxy UCX
           meson test -C build --no-rebuild --suite resiliency --num-processes 2 --print-errorlogs
       - name: Upload configure and test logs
         if: always()
