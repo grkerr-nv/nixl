@@ -239,6 +239,65 @@ TEST_F(PluginLoaderTest, SerializesInitializationWithLastEngineFinalization) {
     EXPECT_EQ(gate.finalizations.load(), 1U);
 }
 
+TEST_F(PluginLoaderTest, SharesOneInitializationAcrossOverlappingLoadersAndAliases) {
+    const auto alias = std::filesystem::temp_directory_path() /
+        ("nixl_loader_shared_" + std::to_string(getpid()) + ".so");
+    std::filesystem::create_symlink(LOADER_FIXTURE_PATH, alias);
+
+    struct removeAlias {
+        std::filesystem::path path;
+
+        ~removeAlias() {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+    } cleanup{alias};
+
+    fixturePlugin fixture;
+    std::optional<engine_ptr_t> engine;
+    {
+        pluginLoader first(LOADER_FIXTURE_PATH);
+        {
+            pluginLoader second(alias);
+            EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
+            engine.emplace(second.createEngine(&params));
+            // Each loader reports the path it was given, not the first loader's path.
+            fixture.configure(fixture_mode_t::NULL_ENGINE);
+            try {
+                second.createEngine(&params);
+                ADD_FAILURE() << "Expected engine creation to fail";
+            }
+            catch (const std::runtime_error &error) {
+                EXPECT_NE(std::string(error.what()).find(alias.string()), std::string::npos)
+                    << error.what();
+            }
+            fixture.configure();
+        }
+        EXPECT_TRUE(fixture.events.empty());
+    }
+    EXPECT_TRUE(fixture.events.empty());
+    engine.reset();
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::FINALIZE}));
+}
+
+TEST_F(PluginLoaderTest, ReinitializesAfterFailedValidation) {
+    fixturePlugin fixture;
+    fixture.configure(fixture_mode_t::OLD_API);
+    expectLoadFailure(LOADER_FIXTURE_PATH, "API version mismatch");
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
+    fixture.configure();
+    {
+        pluginLoader loader(LOADER_FIXTURE_PATH);
+        EXPECT_STREQ(loader.getName(), "LOADER_FIXTURE");
+    }
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
+}
+
 TEST_F(PluginLoaderTest, PassesOriginalParametersAndUsesPluginDestroyCallback) {
     fixturePlugin fixture;
     {

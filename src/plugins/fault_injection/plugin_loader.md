@@ -89,9 +89,10 @@ failed factories must clean up partial engine allocations.
 
 Overlapping loaders and their engines share one initialized state per loaded
 library, identified by its `dlopen` handle rather than the path spelling.
-The last owner finalizes and closes that state before a later initializer can
-run. The registry holds weak references, so it does not extend plugin lifetimes.
-Failed initialization or validation also completes teardown before a retry.
+Owners are counted under the registry lock, and the last owner finalizes and
+closes that state under the same lock, so a later initializer cannot overlap it.
+Failed initialization or validation also completes teardown before releasing
+the lock. Error messages name the path each loader was given.
 
 ## Build and tests
 

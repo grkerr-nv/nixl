@@ -21,7 +21,6 @@
 #include "common/nixl_log.h"
 
 #include <dlfcn.h>
-#include <condition_variable>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -52,25 +51,56 @@ namespace {
 struct pluginLoader::pluginState {
     using finalize_t = void (*)();
 
+    // Live states keyed by dlopen handle. An entry exists only while it has owners, and
+    // owners change only under the mutex, so a lookup never sees a state mid-teardown.
     struct registryState {
+        // One lock for every genuine library: it covers dlopen, the plugin's
+        // initialization and validation, and finalization from any thread that drops the
+        // last owner. A slow initializer therefore delays teardown of unrelated plugins.
+        // Use a per-handle lock if that contention ever matters.
         std::mutex mutex;
-        std::condition_variable changed;
-        std::unordered_map<void *, std::weak_ptr<pluginState>> plugins;
+        std::unordered_map<void *, std::unique_ptr<pluginState>> plugins;
     };
 
     static std::shared_ptr<registryState>
     getRegistry() {
-        // Live states retain the registry past this static owner's destruction during shutdown.
+        // Live owners retain the registry past this static owner's destruction during shutdown.
         static const auto registry = std::make_shared<registryState>();
         return registry;
     }
 
-    pluginState(std::filesystem::path path, std::shared_ptr<registryState> registry)
-        : path(std::move(path)),
-          registry(std::move(registry)) {}
+    // One per loader. Engine deleters share it, so it expires after the loader and all
+    // of its engines. The last owner of a state finalizes it under the registry lock.
+    struct ownerRef {
+        explicit ownerRef(std::shared_ptr<registryState> registry)
+            : registry(std::move(registry)) {}
 
+        ownerRef(const ownerRef &) = delete;
+        ownerRef &
+        operator=(const ownerRef &) = delete;
+
+        ~ownerRef() {
+            if (!state) {
+                return;
+            }
+            const std::lock_guard lock(registry->mutex);
+            if (--state->owners == 0) {
+                registry->plugins.erase(state->handle);
+            }
+        }
+
+        std::shared_ptr<registryState> registry;
+        pluginState *state = nullptr;
+    };
+
+    explicit pluginState(std::filesystem::path path) : path(std::move(path)) {}
+
+    pluginState(const pluginState &) = delete;
+    pluginState &
+    operator=(const pluginState &) = delete;
+
+    // Runs under the registry lock, so finalization cannot overlap a later initialization.
     ~pluginState() {
-        const std::lock_guard lock(registry->mutex);
         if (plugin && finalize) {
             try {
                 finalize();
@@ -84,25 +114,21 @@ struct pluginLoader::pluginState {
                            << ": unknown exception";
             }
         }
-        if (registered) {
-            registry->plugins.erase(handle);
-        }
         if (handle) {
             dlclose(handle);
         }
-        registry->changed.notify_all();
     }
 
     // Each successful init owns one matching fini, including validation failures.
+    // The path is the one that first loaded the library; aliases share this state.
     std::filesystem::path path;
     void *handle = nullptr;
     nixlBackendPlugin *plugin = nullptr;
     finalize_t finalize = nullptr;
-    bool registered = false;
-    std::shared_ptr<registryState> registry;
+    size_t owners = 0;
 };
 
-pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
+pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) : path_(path) {
     if (!path.is_absolute()) {
         throw std::invalid_argument("Genuine plugin path must be absolute: " + path.string());
     }
@@ -110,9 +136,11 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     rejectSelfLoad(path);
 
     auto registry = pluginState::getRegistry();
-    auto state = std::make_shared<pluginState>(path, registry);
-    // Declare after state so failed construction unlocks before state tears down.
-    std::unique_lock lock(registry->mutex);
+    // Allocate before locking: releasing an owner takes the lock.
+    auto owner = std::make_shared<pluginState::ownerRef>(registry);
+    const std::lock_guard lock(registry->mutex);
+    // Declared after the lock, so a failed load finalizes and closes before unlocking.
+    auto state = std::make_unique<pluginState>(path);
     // Core's path loader is private; keep this loader usable with unmodified NIXL.
     // Match core's NODELETE workaround for Abseil/TLS unloading on older glibc.
     // We still balance dlopen/dlclose and call the plugin finalizer at logical unload.
@@ -153,21 +181,15 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
                                     path.string());
     }
     // dlopen identifies the loaded object even through symlinks and hard links.
-    for (;;) {
-        const auto found = registry->plugins.find(state->handle);
-        if (found == registry->plugins.end()) {
-            break;
-        }
-        if (auto owner = found->second.lock()) {
-            state_ = std::move(owner);
-            return;
-        }
-        // The last owner has expired, but its destructor may still be waiting for this lock.
-        registry->changed.wait(lock);
+    if (const auto found = registry->plugins.find(state->handle);
+        found != registry->plugins.end()) {
+        // The uninitialized local state drops only this call's extra dlopen reference.
+        owner->state = found->second.get();
+        ++owner->state->owners;
+        auto *shared = owner->state;
+        state_ = std::shared_ptr<pluginState>(std::move(owner), shared);
+        return;
     }
-    // An empty entry also blocks retries until failed initialization/validation cleans up.
-    registry->plugins.emplace(state->handle, std::weak_ptr<pluginState>{});
-    state->registered = true;
     // Fini is optional, as in the core plugin manager.
     state->finalize =
         reinterpret_cast<pluginState::finalize_t>(dlsym(state->handle, "nixl_plugin_fini"));
@@ -198,8 +220,12 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     if (!name || !*name || !version || !*version) {
         throw std::runtime_error("Genuine plugin has an empty name or version: " + path.string());
     }
-    registry->plugins.at(state->handle) = state;
-    state_ = std::move(state);
+    auto *shared = state.get();
+    // If emplace throws, whichever pointer holds the state finalizes it under the lock.
+    registry->plugins.emplace(shared->handle, std::move(state));
+    shared->owners = 1;
+    owner->state = shared;
+    state_ = std::shared_ptr<pluginState>(std::move(owner), shared);
 }
 
 const char *
@@ -235,11 +261,11 @@ pluginLoader::createEngine(const nixlBackendInitParams *params) const {
         engine.reset(state_->plugin->create_engine(params));
     }
     catch (const std::exception &error) {
-        throw std::runtime_error("Genuine plugin engine creation threw in '" +
-                                 state_->path.string() + "': " + error.what());
+        throw std::runtime_error("Genuine plugin engine creation threw in '" + path_.string() +
+                                 "': " + error.what());
     }
     if (!engine) {
-        throw std::runtime_error("Genuine plugin engine creation failed: " + state_->path.string());
+        throw std::runtime_error("Genuine plugin engine creation failed: " + path_.string());
     }
     return engine;
 }
