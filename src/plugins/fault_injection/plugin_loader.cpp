@@ -83,7 +83,8 @@ struct pluginLoader::pluginState {
                 return;
             }
             const std::lock_guard lock(registry->mutex);
-            if (--state->owners == 0) {
+            state->owners -= 1;
+            if (state->owners == 0) {
                 registry->plugins.erase(state->handle);
             }
         }
@@ -184,7 +185,7 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) : p
         found != registry->plugins.end()) {
         // The uninitialized local state drops only this call's extra dlopen reference.
         owner->state = found->second.get();
-        ++owner->state->owners;
+        owner->state->owners += 1;
         auto *shared = owner->state;
         state_ = std::shared_ptr<pluginState>(std::move(owner), shared);
         return;
