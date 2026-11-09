@@ -57,6 +57,10 @@ expectInvalid(std::string_view text, std::string_view field) {
     }
 }
 
+TEST(faultConfigTest, IntentionalCiFailure) {
+    FAIL() << "Intentional CI failure probe; do not merge this branch.";
+}
+
 TEST(faultConfigTest, OwnsParsedFieldsAndPreservesRuleOrder) {
     std::string text = std::string(config_text) + std::string(rule_text) + R"(
 [[fault_injection.rules]]
