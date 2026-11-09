@@ -87,6 +87,13 @@ Successful initialization gets a matching finalizer call, even if validation
 fails. Initializers that return null or throw must clean up partial state;
 failed factories must clean up partial engine allocations.
 
+Overlapping loaders and their engines share one initialized state per loaded
+library, identified by its `dlopen` handle rather than the path spelling.
+Owners are counted under the registry lock, and the last owner finalizes and
+closes that state under the same lock, so a later initializer cannot overlap it.
+Failed initialization or validation also completes teardown before releasing
+the lock. Error messages name the path each loader was given.
+
 ## Build and tests
 
 The `nixl_plugin_loader` static library builds when `build_fault_injection=true`

@@ -25,12 +25,17 @@
 
 #include <dlfcn.h>
 #include <unistd.h>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <future>
 #include <optional>
+#include <semaphore>
 #include <stdexcept>
 #include <system_error>
 #include <type_traits>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -100,6 +105,11 @@ public:
                      fixture.createParams.push_back(params);
                  }
              }});
+    }
+
+    void
+    observe(loader_fixture::observer observer) {
+        configure_(fixture_mode_t::VALID, observer);
     }
 
     bool
@@ -178,6 +188,111 @@ TEST_F(PluginLoaderTest, ReportsPluginMetadataAndFinalizesOnce) {
         EXPECT_EQ(loader.getBackendOptions(), (nixl_b_params_t{{"transport", "fixture"}}));
         EXPECT_EQ(loader.getBackendMems(), (nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
         EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
+    }
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
+}
+
+TEST_F(PluginLoaderTest, SerializesInitializationWithLastEngineFinalization) {
+    struct teardownGate {
+        std::binary_semaphore entered{0}, resume{0};
+        std::atomic<bool> finalizing{false}, overlap{false};
+        std::atomic<size_t> finalizations{0};
+
+        static void
+        record(void *context, fixture_event_t event, const nixlBackendInitParams *) {
+            auto &gate = *static_cast<teardownGate *>(context);
+            if (event == fixture_event_t::INIT && gate.finalizing.load()) {
+                gate.overlap = true;
+            }
+            if (event == fixture_event_t::FINALIZE && gate.finalizations.fetch_add(1) == 0) {
+                gate.finalizing = true;
+                gate.entered.release();
+                gate.resume.acquire();
+                gate.finalizing = false;
+            }
+        }
+    } gate;
+
+    fixturePlugin fixture;
+    fixture.observe({.context = &gate, .record = teardownGate::record});
+    std::optional<engine_ptr_t> engine;
+    {
+        pluginLoader loader(LOADER_FIXTURE_PATH);
+        engine.emplace(loader.createEngine(&params));
+    }
+    std::thread finalizer([&] { engine.reset(); });
+    gate.entered.acquire();
+    std::binary_semaphore started{0};
+    auto next = std::async(std::launch::async, [&] {
+        started.release();
+        return std::make_unique<pluginLoader>(LOADER_FIXTURE_PATH);
+    });
+    started.acquire();
+    const auto result = next.wait_for(std::chrono::milliseconds(100));
+    // Unblock teardown before checking results, so a failed assertion cannot strand a thread.
+    gate.resume.release();
+    finalizer.join();
+    const auto loader = next.get();
+    EXPECT_EQ(result, std::future_status::timeout);
+    EXPECT_FALSE(gate.overlap.load());
+    EXPECT_EQ(gate.finalizations.load(), 1U);
+}
+
+TEST_F(PluginLoaderTest, SharesOneInitializationAcrossOverlappingLoadersAndAliases) {
+    const auto alias = std::filesystem::temp_directory_path() /
+        ("nixl_loader_shared_" + std::to_string(getpid()) + ".so");
+    std::filesystem::create_symlink(LOADER_FIXTURE_PATH, alias);
+
+    struct removeAlias {
+        std::filesystem::path path;
+
+        ~removeAlias() {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+    } cleanup{alias};
+
+    fixturePlugin fixture;
+    std::optional<engine_ptr_t> engine;
+    {
+        pluginLoader first(LOADER_FIXTURE_PATH);
+        {
+            pluginLoader second(alias);
+            EXPECT_EQ(fixture.events, (std::vector<fixture_event_t>{fixture_event_t::INIT}));
+            engine.emplace(second.createEngine(&params));
+            // Each loader reports the path it was given, not the first loader's path.
+            fixture.configure(fixture_mode_t::NULL_ENGINE);
+            try {
+                second.createEngine(&params);
+                ADD_FAILURE() << "Expected engine creation to fail";
+            }
+            catch (const std::runtime_error &error) {
+                EXPECT_NE(std::string(error.what()).find(alias.string()), std::string::npos)
+                    << error.what();
+            }
+            fixture.configure();
+        }
+        EXPECT_TRUE(fixture.events.empty());
+    }
+    EXPECT_TRUE(fixture.events.empty());
+    engine.reset();
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::FINALIZE}));
+}
+
+TEST_F(PluginLoaderTest, ReinitializesAfterFailedValidation) {
+    fixturePlugin fixture;
+    fixture.configure(fixture_mode_t::OLD_API);
+    expectLoadFailure(LOADER_FIXTURE_PATH, "API version mismatch");
+    EXPECT_EQ(fixture.events,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));
+    fixture.configure();
+    {
+        pluginLoader loader(LOADER_FIXTURE_PATH);
+        EXPECT_STREQ(loader.getName(), "LOADER_FIXTURE");
     }
     EXPECT_EQ(fixture.events,
               (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::FINALIZE}));

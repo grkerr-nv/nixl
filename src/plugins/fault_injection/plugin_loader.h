@@ -57,7 +57,9 @@ public:
     createEngine(const nixlBackendInitParams *params) const;
 
 private:
-    // Shared by this loader and engine deleters. Finalize only after the last owner.
+    // The path this loader was given, which may be an alias of the shared state's path.
+    std::filesystem::path path_;
+    // Shared by loaders of the same library and engine deleters. Finalize after the last owner.
     std::shared_ptr<pluginState> state_;
 };
 

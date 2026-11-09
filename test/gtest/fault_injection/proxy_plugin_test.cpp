@@ -206,6 +206,41 @@ TEST_F(proxyPluginTest, PreservesIdentityAndForwardsTransferWithOriginalHandles)
                                             fixture_event_t::FINALIZE}));
 }
 
+TEST_F(proxyPluginTest, ReusesGenuinePluginWhileEarlierEnginesSurviveReinitialization) {
+    auto *plugin = initialize();
+    ASSERT_NE(plugin, nullptr);
+    using engine_owner_t = std::unique_ptr<nixlBackendEngine, void (*)(nixlBackendEngine *)>;
+    engine_owner_t first(plugin->create_engine(&params_), plugin->destroy_engine);
+    ASSERT_NE(first, nullptr);
+    finalize();
+
+    const auto alias = directory_ / "genuine-alias.so";
+    std::filesystem::create_symlink(LOADER_FIXTURE_PATH, alias);
+    writeConfig("[fault_injection]\nschema_version = 1\nexperiment_id = 'reinitialized'\n"
+                "real_plugin_path = '" +
+                alias.string() + "'\nrules = []\n");
+    ASSERT_EQ(initialize(), plugin);
+    EXPECT_EQ(events_,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT, fixture_event_t::CREATE}));
+    engine_owner_t second(plugin->create_engine(&params_), plugin->destroy_engine);
+    ASSERT_NE(second, nullptr);
+    first.reset();
+    EXPECT_EQ(events_.back(), fixture_event_t::ENGINE_DESTROYED);
+    EXPECT_CALL(*genuine_, supportsLocal()).WillOnce(Return(true));
+    EXPECT_TRUE(second->supportsLocal());
+    finalize();
+    second.reset();
+    EXPECT_EQ(events_,
+              (std::vector<fixture_event_t>{fixture_event_t::INIT,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::CREATE,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::DESTROY_CALLBACK,
+                                            fixture_event_t::ENGINE_DESTROYED,
+                                            fixture_event_t::FINALIZE}));
+}
+
 TEST_F(proxyPluginTest, SharesInjectionCountsAcrossEnginesAndFinalization) {
     writeConfig(
         "[fault_injection]\nschema_version = 1\nexperiment_id = 'shared-engines'\n"

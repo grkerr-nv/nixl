@@ -110,11 +110,12 @@ change backend identity. When `real_plugin_path` names `libplugin_UCX.so`, the
 proxy applies core's `NIXL_UCX_DEEPBIND` policy to it. See
 [loader limitations](plugin_loader.md).
 
-One mutex is held across the genuine plugin's `nixl_plugin_init` and
-`nixl_plugin_fini`, so those never overlap. Known gap: an engine outliving the
-last finalization finalizes the genuine plugin from its own thread without that
-lock, so a concurrent initialization can still overlap it. Destroy engines before
-reinitializing a backend from another thread.
+The loader shares one genuine-plugin state across overlapping proxy lifetimes,
+including when `real_plugin_path` changes to an alias of the same loaded library.
+An old engine cannot finalize a plugin still used by a reinitialized proxy.
+The last owner finalizes the genuine plugin on its own thread, serialized with
+later initialization. Each proxy lifetime still reads a fresh fault configuration
+and owns separate injection counters.
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must
