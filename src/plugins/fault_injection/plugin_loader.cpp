@@ -56,8 +56,7 @@ struct pluginLoader::pluginState {
     struct registryState {
         // One lock for every genuine library: it covers dlopen, the plugin's
         // initialization and validation, and finalization from any thread that drops the
-        // last owner. A slow initializer therefore delays teardown of unrelated plugins.
-        // Use a per-handle lock if that contention ever matters.
+        // last owner.
         std::mutex mutex;
         std::unordered_map<void *, std::unique_ptr<pluginState>> plugins;
     };
