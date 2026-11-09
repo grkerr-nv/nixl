@@ -58,18 +58,19 @@ struct pluginLoader::pluginState {
         std::unordered_map<void *, std::weak_ptr<pluginState>> plugins;
     };
 
-    static registryState &
+    static std::shared_ptr<registryState>
     getRegistry() {
-        // Engine deleters may run after DSO static destructors during core shutdown.
-        static auto *registry = new registryState;
-        return *registry;
+        // Live states retain the registry past this static owner's destruction during shutdown.
+        static const auto registry = std::make_shared<registryState>();
+        return registry;
     }
 
-    explicit pluginState(std::filesystem::path path) : path(std::move(path)) {}
+    pluginState(std::filesystem::path path, std::shared_ptr<registryState> registry)
+        : path(std::move(path)),
+          registry(std::move(registry)) {}
 
     ~pluginState() {
-        auto &registry = getRegistry();
-        const std::lock_guard lock(registry.mutex);
+        const std::lock_guard lock(registry->mutex);
         if (plugin && finalize) {
             try {
                 finalize();
@@ -84,12 +85,12 @@ struct pluginLoader::pluginState {
             }
         }
         if (registered) {
-            registry.plugins.erase(handle);
+            registry->plugins.erase(handle);
         }
         if (handle) {
             dlclose(handle);
         }
-        registry.changed.notify_all();
+        registry->changed.notify_all();
     }
 
     // Each successful init owns one matching fini, including validation failures.
@@ -98,6 +99,7 @@ struct pluginLoader::pluginState {
     nixlBackendPlugin *plugin = nullptr;
     finalize_t finalize = nullptr;
     bool registered = false;
+    std::shared_ptr<registryState> registry;
 };
 
 pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
@@ -107,10 +109,10 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
 
     rejectSelfLoad(path);
 
-    auto &registry = pluginState::getRegistry();
-    auto state = std::make_shared<pluginState>(path);
+    auto registry = pluginState::getRegistry();
+    auto state = std::make_shared<pluginState>(path, registry);
     // Declare after state so failed construction unlocks before state tears down.
-    std::unique_lock lock(registry.mutex);
+    std::unique_lock lock(registry->mutex);
     // Core's path loader is private; keep this loader usable with unmodified NIXL.
     // Match core's NODELETE workaround for Abseil/TLS unloading on older glibc.
     // We still balance dlopen/dlclose and call the plugin finalizer at logical unload.
@@ -152,8 +154,8 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     }
     // dlopen identifies the loaded object even through symlinks and hard links.
     for (;;) {
-        const auto found = registry.plugins.find(state->handle);
-        if (found == registry.plugins.end()) {
+        const auto found = registry->plugins.find(state->handle);
+        if (found == registry->plugins.end()) {
             break;
         }
         if (auto owner = found->second.lock()) {
@@ -161,10 +163,10 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
             return;
         }
         // The last owner has expired, but its destructor may still be waiting for this lock.
-        registry.changed.wait(lock);
+        registry->changed.wait(lock);
     }
     // An empty entry also blocks retries until failed initialization/validation cleans up.
-    registry.plugins.emplace(state->handle, std::weak_ptr<pluginState>{});
+    registry->plugins.emplace(state->handle, std::weak_ptr<pluginState>{});
     state->registered = true;
     // Fini is optional, as in the core plugin manager.
     state->finalize =
@@ -196,7 +198,7 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     if (!name || !*name || !version || !*version) {
         throw std::runtime_error("Genuine plugin has an empty name or version: " + path.string());
     }
-    registry.plugins.at(state->handle) = state;
+    registry->plugins.at(state->handle) = state;
     state_ = std::move(state);
 }
 
