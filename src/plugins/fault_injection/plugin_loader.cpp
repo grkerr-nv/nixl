@@ -21,9 +21,12 @@
 #include "common/nixl_log.h"
 
 #include <dlfcn.h>
+#include <condition_variable>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 namespace nixl::fault {
@@ -49,9 +52,24 @@ namespace {
 struct pluginLoader::pluginState {
     using finalize_t = void (*)();
 
+    struct registryState {
+        std::mutex mutex;
+        std::condition_variable changed;
+        std::unordered_map<void *, std::weak_ptr<pluginState>> plugins;
+    };
+
+    static registryState &
+    getRegistry() {
+        // Engine deleters may run after DSO static destructors during core shutdown.
+        static auto *registry = new registryState;
+        return *registry;
+    }
+
     explicit pluginState(std::filesystem::path path) : path(std::move(path)) {}
 
     ~pluginState() {
+        auto &registry = getRegistry();
+        const std::lock_guard lock(registry.mutex);
         if (plugin && finalize) {
             try {
                 finalize();
@@ -65,9 +83,13 @@ struct pluginLoader::pluginState {
                            << ": unknown exception";
             }
         }
+        if (registered) {
+            registry.plugins.erase(handle);
+        }
         if (handle) {
             dlclose(handle);
         }
+        registry.changed.notify_all();
     }
 
     // Each successful init owns one matching fini, including validation failures.
@@ -75,6 +97,7 @@ struct pluginLoader::pluginState {
     void *handle = nullptr;
     nixlBackendPlugin *plugin = nullptr;
     finalize_t finalize = nullptr;
+    bool registered = false;
 };
 
 pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
@@ -84,7 +107,10 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
 
     rejectSelfLoad(path);
 
+    auto &registry = pluginState::getRegistry();
     auto state = std::make_shared<pluginState>(path);
+    // Declare after state so failed construction unlocks before state tears down.
+    std::unique_lock lock(registry.mutex);
     // Core's path loader is private; keep this loader usable with unmodified NIXL.
     // Match core's NODELETE workaround for Abseil/TLS unloading on older glibc.
     // We still balance dlopen/dlclose and call the plugin finalizer at logical unload.
@@ -124,6 +150,22 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
         throw std::invalid_argument("Genuine plugin path refers to the proxy itself: " +
                                     path.string());
     }
+    // dlopen identifies the loaded object even through symlinks and hard links.
+    for (;;) {
+        const auto found = registry.plugins.find(state->handle);
+        if (found == registry.plugins.end()) {
+            break;
+        }
+        if (auto owner = found->second.lock()) {
+            state_ = std::move(owner);
+            return;
+        }
+        // The last owner has expired, but its destructor may still be waiting for this lock.
+        registry.changed.wait(lock);
+    }
+    // An empty entry also blocks retries until failed initialization/validation cleans up.
+    registry.plugins.emplace(state->handle, std::weak_ptr<pluginState>{});
+    state->registered = true;
     // Fini is optional, as in the core plugin manager.
     state->finalize =
         reinterpret_cast<pluginState::finalize_t>(dlsym(state->handle, "nixl_plugin_fini"));
@@ -154,6 +196,7 @@ pluginLoader::pluginLoader(const std::filesystem::path &path, bool deepbind) {
     if (!name || !*name || !version || !*version) {
         throw std::runtime_error("Genuine plugin has an empty name or version: " + path.string());
     }
+    registry.plugins.at(state->handle) = state;
     state_ = std::move(state);
 }
 

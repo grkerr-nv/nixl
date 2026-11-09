@@ -77,8 +77,8 @@ struct proxyState {
 constexpr const char *unknown_identity = "unknown";
 
 // Serializes plugin init/fini and access to the shared state slot and initialization count.
-// Hold while copying or changing state, and across the genuine plugin's own
-// initialization and finalization so the two cannot overlap.
+// Hold while copying or changing state. pluginLoader serializes the genuine plugin's
+// lifecycle, including teardown from an engine that outlives this state.
 // Engine forwarding does not take this lock; identity getters use atomics.
 std::mutex state_mutex;
 // Core may finalize plugins after DSO globals have been destroyed at process exit, so the
@@ -215,9 +215,8 @@ nixl_plugin_fini() {
         return;
     }
     if (--initializations == 0) {
-        // Hold the lock through teardown, as init does through the genuine plugin's
-        // initialization. Releasing first would let a concurrent init re-initialize the
-        // genuine library while this thread finalizes it.
+        // Reset proxy state under its lock. The loader shares genuine plugin ownership
+        // with engines retained from earlier proxy initializations.
         const std::shared_ptr<proxyState> previous = std::move(*state);
         delete std::exchange(state, nullptr);
         // Describe the finalized proxy as core describes a missing accessor. Strings
@@ -225,7 +224,4 @@ nixl_plugin_fini() {
         plugin_name.store(unknown_identity, std::memory_order_release);
         plugin_version.store(unknown_identity, std::memory_order_release);
     }
-    // Engine deleters keep the genuine plugin alive after the proxy's last finalization,
-    // and finalize it from whichever thread drops the last engine. That teardown does not
-    // take this lock, so it can still overlap a later initialization.
 }
