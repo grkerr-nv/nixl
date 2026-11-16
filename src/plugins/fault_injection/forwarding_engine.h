@@ -35,7 +35,7 @@ public:
     forwardingEngine(const nixlBackendInitParams *params,
                      engine_ptr_t engine,
                      std::shared_ptr<faultRuntime> runtime = nullptr)
-        : nixlBackendEngine(validateParams(params)),
+        : nixlBackendEngine(validateParams(params), snapshotCapabilities(engine.get())),
           runtime_(std::move(runtime)),
           engine_(std::move(engine)) {
         if (!engine_) {
@@ -69,11 +69,6 @@ public:
     bool
     supportsNotif() const override {
         return engine_->supportsNotif();
-    }
-
-    [[nodiscard]] bool
-    supportsTraceContext() const noexcept override {
-        return engine_->supportsTraceContext();
     }
 
     nixl_mem_list_t
@@ -295,6 +290,22 @@ public:
     }
 
 private:
+    static nixl_backend_capability_t
+    snapshotCapabilities(const nixlBackendEngine *engine) {
+        auto capabilities = nixl_backend_capability_t::NONE;
+        if (engine) {
+            for (const auto capability : {nixl_backend_capability_t::REMOTE,
+                                          nixl_backend_capability_t::LOCAL,
+                                          nixl_backend_capability_t::NOTIF,
+                                          nixl_backend_capability_t::TRACE_CONTEXT}) {
+                if (engine->supportsCapability(capability)) {
+                    capabilities = capabilities | capability;
+                }
+            }
+        }
+        return capabilities;
+    }
+
     std::optional<nixl_status_t>
     injectedStatus(backend_method_t method, std::optional<nixl_xfer_op_t> operation) const {
         return runtime_ ? runtime_->evaluate(method, operation) : std::nullopt;

@@ -102,16 +102,26 @@ TEST_F(ForwardingEngineTest, ForwardsCapabilities) {
     EXPECT_CALL(*engine, supportsRemote()).WillOnce(Return(false));
     EXPECT_CALL(*engine, supportsLocal()).WillOnce(Return(true));
     EXPECT_CALL(*engine, supportsNotif()).WillOnce(Return(false));
-    EXPECT_CALL(*engine, supportsTraceContext()).WillOnce(Return(true)).WillOnce(Return(false));
     EXPECT_CALL(*engine, getSupportedMems()).WillOnce(Return(nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
     forwardingEngine wrapper(&params, std::move(engine));
     nixlBackendEngine &base = wrapper;
     EXPECT_FALSE(base.supportsRemote());
     EXPECT_TRUE(base.supportsLocal());
     EXPECT_FALSE(base.supportsNotif());
-    EXPECT_TRUE(base.supportsTraceContext());
-    EXPECT_FALSE(base.supportsTraceContext());
+    EXPECT_FALSE(base.supportsCapability(nixl_backend_capability_t::TRACE_CONTEXT));
     EXPECT_EQ(base.getSupportedMems(), (nixl_mem_list_t{DRAM_SEG, VRAM_SEG}));
+}
+
+TEST_F(ForwardingEngineTest, PreservesCapabilityFlagsThroughBasePointer) {
+    const auto capabilities =
+        nixl_backend_capability_t::REMOTE | nixl_backend_capability_t::TRACE_CONTEXT;
+    engine_ptr_t engine(new Mock(&params, capabilities), engineDeleter::forOwnedEngine());
+    forwardingEngine wrapper(&params, std::move(engine));
+    const nixlBackendEngine &base = wrapper;
+    EXPECT_TRUE(base.supportsCapability(nixl_backend_capability_t::REMOTE));
+    EXPECT_TRUE(base.supportsCapability(nixl_backend_capability_t::TRACE_CONTEXT));
+    EXPECT_FALSE(base.supportsCapability(nixl_backend_capability_t::LOCAL));
+    EXPECT_FALSE(base.supportsCapability(nixl_backend_capability_t::NOTIF));
 }
 
 TEST_F(ForwardingEngineTest, DestroysOwnedEngineExactlyOnce) {

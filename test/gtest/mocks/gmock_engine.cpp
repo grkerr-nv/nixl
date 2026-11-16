@@ -26,8 +26,9 @@ char gmock_dummy_mvh;
 
 GMockBackendEngine::GMockBackendEngine() : GMockBackendEngine(&init_params) {}
 
-GMockBackendEngine::GMockBackendEngine(const nixlBackendInitParams *init_params)
-    : nixlBackendEngine(init_params) {
+GMockBackendEngine::GMockBackendEngine(const nixlBackendInitParams *init_params,
+                                       nixl_backend_capability_t capabilities)
+    : nixlBackendEngine(init_params, capabilities) {
     setDefaults();
 }
 
