@@ -46,8 +46,12 @@ export NIXL_FAULT_CONFIG_FILE=/absolute/path/to/inert.toml
 
 Use `debugoptimized` for this discovery path: debug builds may prioritize their
 generated `pluginlist` over `NIXL_PLUGIN_DIR`. Statically built-in backends also
-bypass dynamic discovery. Start a fresh process after changing configuration.
-Keep the framework's backend selection as `UCX`.
+bypass dynamic discovery. Keep the framework's backend selection as `UCX`.
+
+Core caches loaded plugins. Start a fresh process after changing fault rules,
+`real_plugin_path` (including aliases), or `NIXL_UCX_DEEPBIND`. Creating another
+agent does not reload configuration or reset injection counters. In-process proxy
+unload/reinitialization is unsupported for harness runs.
 
 ```toml
 [fault_injection]
@@ -110,11 +114,12 @@ change backend identity. When `real_plugin_path` names `libplugin_UCX.so`, the
 proxy applies core's `NIXL_UCX_DEEPBIND` policy to it. See
 [loader limitations](plugin_loader.md).
 
-One mutex is held across the genuine plugin's `nixl_plugin_init` and
-`nixl_plugin_fini`, so those never overlap. Known gap: an engine outliving the
-last finalization finalizes the genuine plugin from its own thread without that
-lock, so a concurrent initialization can still overlap it. Destroy engines before
-reinitializing a backend from another thread.
+The proxy mutex serializes its initialization and finalization callbacks. An
+engine that outlives proxy finalization retains the genuine plugin and may
+finalize it later, outside that mutex. Reinitializing while an earlier engine or
+its deleter remains alive can finalize the genuine plugin while newer engines
+still use it. Direct plugin-ABI callers must release earlier engines and their
+deleters and complete teardown before reinitializing the same genuine library.
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must
