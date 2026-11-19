@@ -53,6 +53,15 @@ Core caches loaded plugins. Start a fresh process after changing fault rules,
 agent does not reload configuration or reset injection counters. In-process proxy
 unload/reinitialization is unsupported for harness runs.
 
+The current [vLLM testing path](../../../contrib/README.vllm-fault-injection.md)
+uses one proxied UCX backend per process and does not require in-process
+reinitialization. Testing distinct backends together does not itself require
+overlapping loader lifetimes for the same genuine library. Injecting faults into
+multiple backends in one process requires additional proxy isolation and
+configuration support: one loaded proxy library has one backend identity and
+configuration. Multiple symlinks to that library do not provide independent
+proxy instances.
+
 ```toml
 [fault_injection]
 schema_version = 1
