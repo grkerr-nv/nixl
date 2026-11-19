@@ -54,6 +54,13 @@ The last owner calls optional `nixl_plugin_fini`, then `dlclose`. Cleanup except
 are logged and suppressed without retry. Never release an engine without retaining
 its deleter and library ownership.
 
+Separate loaders do not share initialization or serialize teardown, even when
+their paths are aliases of the same library. Before loading that library again,
+destroy its earlier loader and all engine pointers and deleters, and wait for
+teardown to finish. Otherwise, an earlier owner's finalizer can invalidate a
+newer loader's engines. Harness runs must restart the process instead of
+unloading and reinitializing the proxy in place; see [deployment](README.md).
+
 ## Loading and failures
 
 Loading stays local so the proxy can run against an unmodified NIXL build.
@@ -69,6 +76,10 @@ Optional `deepbind = true` adds `RTLD_DEEPBIND` (default off). The proxy applies
 core's `NIXL_UCX_DEEPBIND` policy. Deep binding prefers plugin symbols, bypassing
 `LD_PRELOAD` and sanitizer interposition; enable only when needed. Unsupported
 platforms warn and continue without it.
+
+An alias of an already loaded library reuses that library's symbol bindings.
+`RTLD_NODELETE` keeps the library loaded after `dlclose`. Restart the process to
+change the genuine library path or deep-binding policy.
 
 - `std::invalid_argument`: empty or relative paths, self-loading (including
   symlinks), or null initialization parameters.

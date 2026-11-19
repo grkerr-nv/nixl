@@ -46,8 +46,21 @@ export NIXL_FAULT_CONFIG_FILE=/absolute/path/to/inert.toml
 
 Use `debugoptimized` for this discovery path: debug builds may prioritize their
 generated `pluginlist` over `NIXL_PLUGIN_DIR`. Statically built-in backends also
-bypass dynamic discovery. Start a fresh process after changing configuration.
-Keep the framework's backend selection as `UCX`.
+bypass dynamic discovery. Keep the framework's backend selection as `UCX`.
+
+Core caches loaded plugins. Start a fresh process after changing fault rules,
+`real_plugin_path` (including aliases), or `NIXL_UCX_DEEPBIND`. Creating another
+agent does not reload configuration or reset injection counters. In-process proxy
+unload/reinitialization is unsupported for harness runs.
+
+The current [vLLM testing path](../../../contrib/README.vllm-fault-injection.md)
+uses one proxied UCX backend per process and does not require in-process
+reinitialization. Testing distinct backends together does not itself require
+overlapping loader lifetimes for the same genuine library. Injecting faults into
+multiple backends in one process requires additional proxy isolation and
+configuration support: one loaded proxy library has one backend identity and
+configuration. Multiple symlinks to that library do not provide independent
+proxy instances.
 
 ```toml
 [fault_injection]
@@ -110,11 +123,20 @@ change backend identity. When `real_plugin_path` names `libplugin_UCX.so`, the
 proxy applies core's `NIXL_UCX_DEEPBIND` policy to it. See
 [loader limitations](plugin_loader.md).
 
-One mutex is held across the genuine plugin's `nixl_plugin_init` and
-`nixl_plugin_fini`, so those never overlap. Known gap: an engine outliving the
-last finalization finalizes the genuine plugin from its own thread without that
-lock, so a concurrent initialization can still overlap it. Destroy engines before
-reinitializing a backend from another thread.
+The proxy mutex serializes its initialization and finalization callbacks, but
+does not protect cleanup triggered later by an engine's destruction. Direct
+plugin-ABI callers can encounter this teardown race when restarting the proxy
+within one process:
+
+1. An old engine keeps the genuine plugin alive after proxy finalization.
+2. The proxy reinitializes and creates new engines using the same genuine library.
+3. The old engine and its deleter are destroyed. Releasing the last owner of the
+   earlier loader calls the genuine plugin's finalizer outside the proxy mutex.
+4. That finalizer can tear down plugin state the new engines still need.
+
+An engine pointer's deleter retains plugin ownership even after the pointer is
+reset. Direct plugin-ABI callers must destroy all earlier engines and their
+deleters and complete teardown before reinitializing the same genuine library.
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
 `real_plugin_path`; the proxy library needs no rebuild. The symlink name must
