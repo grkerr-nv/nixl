@@ -123,11 +123,19 @@ change backend identity. When `real_plugin_path` names `libplugin_UCX.so`, the
 proxy applies core's `NIXL_UCX_DEEPBIND` policy to it. See
 [loader limitations](plugin_loader.md).
 
-The proxy mutex serializes its initialization and finalization callbacks. An
-engine that outlives proxy finalization retains the genuine plugin and may
-finalize it later, outside that mutex. Reinitializing while an earlier engine or
-its deleter remains alive can finalize the genuine plugin while newer engines
-still use it. Direct plugin-ABI callers must release earlier engines and their
+The proxy mutex serializes its initialization and finalization callbacks, but
+does not protect cleanup triggered later by an engine's destruction. Direct
+plugin-ABI callers can encounter this teardown race when restarting the proxy
+within one process:
+
+1. An old engine keeps the genuine plugin alive after proxy finalization.
+2. The proxy reinitializes and creates new engines using the same genuine library.
+3. The old engine and its deleter are destroyed. Releasing the last owner of the
+   earlier loader calls the genuine plugin's finalizer outside the proxy mutex.
+4. That finalizer can tear down plugin state the new engines still need.
+
+An engine pointer's deleter retains plugin ownership even after the pointer is
+reset. Direct plugin-ABI callers must destroy all earlier engines and their
 deleters and complete teardown before reinitializing the same genuine library.
 
 Retarget by changing the discovery symlink to `libplugin_<backend>.so` and
